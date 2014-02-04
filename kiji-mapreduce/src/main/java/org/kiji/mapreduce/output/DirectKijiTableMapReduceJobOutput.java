@@ -31,6 +31,7 @@ import org.kiji.annotations.ApiStability;
 import org.kiji.annotations.Inheritance;
 import org.kiji.mapreduce.KijiTableContext;
 import org.kiji.mapreduce.framework.KijiConfKeys;
+import org.kiji.mapreduce.impl.DirectCassandraKijiTableWriterContext;
 import org.kiji.mapreduce.impl.DirectKijiTableWriterContext;
 import org.kiji.schema.KijiURI;
 
@@ -95,11 +96,19 @@ public class DirectKijiTableMapReduceJobOutput extends KijiTableMapReduceJobOutp
 
     final Configuration conf = job.getConfiguration();
 
-    // Kiji table context:
-    conf.setClass(
-        KijiConfKeys.KIJI_TABLE_CONTEXT_CLASS,
-        DirectKijiTableWriterContext.class,
-        KijiTableContext.class);
+    if (getOutputTableURI().isCassandra()) {
+      // Cassandra Kiji table context:
+      conf.setClass(
+          KijiConfKeys.KIJI_TABLE_CONTEXT_CLASS,
+          DirectCassandraKijiTableWriterContext.class,
+          KijiTableContext.class);
+    } else {
+      // Kiji table context:
+      conf.setClass(
+          KijiConfKeys.KIJI_TABLE_CONTEXT_CLASS,
+          DirectKijiTableWriterContext.class,
+          KijiTableContext.class);
+    }
 
     // Since there's no "commit" operation for an entire map task writing to a
     // Kiji table, do not use speculative execution when writing directly to a Kiji table.
