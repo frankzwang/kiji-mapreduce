@@ -502,7 +502,8 @@ public final class KijiTableKeyValueStore<V>
      */
     private TableKVReader() throws IOException {
       Configuration conf = getConf();
-      final Kiji kiji = Kiji.Factory.open(mTableUri, conf);
+      final Kiji kiji;
+      kiji = Kiji.Factory.open(mTableUri, conf);
       try {
         mKijiTable = kiji.openTable(mTableUri.getTable());
       } finally {

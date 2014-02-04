@@ -53,6 +53,7 @@
     <module>mr-hadoop1x</module> <!-- hadoop1-based build -->
     <module>dist</module>
     <module>kiji-mapreduce-archetype</module>
+    <module>kiji-mapreduce-cassandra</module>
   </modules>
 
   <build>
