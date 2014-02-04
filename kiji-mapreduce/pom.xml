@@ -224,6 +224,11 @@
       <version>${hbase.version}</version>
       <scope>provided</scope>
     </dependency>
+  <dependency>
+      <groupId>com.github.cassandra2-hadoop2</groupId>
+      <artifactId>cassandra2-hadoop2</artifactId>
+      <version>0.1-SNAPSHOT</version>
+  </dependency>
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-minicluster</artifactId>
