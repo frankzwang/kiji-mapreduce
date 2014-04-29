@@ -74,8 +74,6 @@ import org.kiji.schema.layout.KijiTableLayout;
 import org.kiji.schema.layout.impl.CassandraColumnNameTranslator;
 import org.kiji.schema.layout.impl.CellDecoderProvider;
 import org.kiji.schema.util.ResourceUtils;
-import java.nio.ByteBuffer;
-import java.util.*;
 
 /**
  * InputFormat for Hadoop MapReduce jobs reading from a Cassandra-backed Kiji table.
@@ -466,14 +464,14 @@ public final class CassandraKijiTableInputFormat
           sb
               .append(" WHERE ")
               .append(CQLUtils.LOCALITY_GROUP_COL)
-              .append(String.format("=%s AND ", localityGroup))
+              .append(String.format("='%s' AND ", localityGroup))
               .append(CQLUtils.FAMILY_COL)
-              .append(String.format("=%s", family));
+              .append(String.format("='%s'", family));
 
           if (qualifier != null) {
             sb.append(" AND ")
                 .append(CQLUtils.QUALIFIER_COL)
-                .append(String.format("=%s ", qualifier));
+                .append(String.format("='%s' ", qualifier));
           }
           String whereClause = sb.toString();
 

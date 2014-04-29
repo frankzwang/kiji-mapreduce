@@ -19,15 +19,21 @@
 
 package org.kiji.mapreduce.impl;
 
+import java.io.IOException;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.TaskInputOutputContext;
+
 import org.kiji.annotations.ApiAudience;
 import org.kiji.mapreduce.KijiTableContext;
 import org.kiji.mapreduce.framework.KijiConfKeys;
-import org.kiji.schema.*;
+import org.kiji.schema.EntityId;
+import org.kiji.schema.EntityIdFactory;
+import org.kiji.schema.Kiji;
+import org.kiji.schema.KijiPutter;
+import org.kiji.schema.KijiTable;
+import org.kiji.schema.KijiURI;
 import org.kiji.schema.util.ResourceUtils;
-
-import java.io.IOException;
 
 /**
  * Kiji context that writes cells to a configured output table.
@@ -51,8 +57,8 @@ public final class DirectCassandraKijiTableWriterContext
   /**
    * Constructs a new context that can write cells directly to a Kiji table.
    *
-   * @param hadoopContext is the Hadoop {@link org.apache.hadoop.mapreduce.TaskInputOutputContext} that will be used to perform
-   *     the writes.
+   * @param hadoopContext is the Hadoop {@link org.apache.hadoop.mapreduce.TaskInputOutputContext}
+   *     that will be used to perform the writes.
    * @throws java.io.IOException on I/O error.
    */
   public DirectCassandraKijiTableWriterContext(TaskInputOutputContext<?, ?, ?, ?> hadoopContext)
@@ -70,8 +76,8 @@ public final class DirectCassandraKijiTableWriterContext
   /**
    * Creates a new context that can write cells directly to a Kiji table.
    *
-   * @param hadoopContext is the Hadoop {@link org.apache.hadoop.mapreduce.TaskInputOutputContext} that will be used to perform
-   *     the writes.
+   * @param hadoopContext is the Hadoop {@link org.apache.hadoop.mapreduce.TaskInputOutputContext}
+   *     that will be used to perform the writes.
    * @return a new context that can write cells directly to a Kiji table.
    * @throws java.io.IOException if there is an I/O error.
    */
