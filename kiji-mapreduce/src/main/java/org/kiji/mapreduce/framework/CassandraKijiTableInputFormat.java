@@ -87,6 +87,8 @@ public final class CassandraKijiTableInputFormat
     extends InputFormat<EntityId, KijiRowData>
     implements Configurable {
 
+  private static final Logger LOG = LoggerFactory.getLogger(CassandraKijiTableInputFormat.class);
+
   /** Configuration of this input format. */
   private Configuration mConf;
 
@@ -160,7 +162,10 @@ public final class CassandraKijiTableInputFormat
 
     // Get a list of all of the columns used for the entity ID.
     KijiTableLayout layout = cassandraTable.getLayout();
-    List<String> clusteringColumns = CQLUtils.getClusterColumns(layout);
+    List<String> clusteringColumns = CQLUtils.getEntityIdClusterColumns(layout);
+    List<String> partitionKeyColumns = CQLUtils.getPartitionKeyColumns(layout);
+    LOG.info("Clustering columns = " + clusteringColumns);
+    LOG.info("Partitioning columns = " + partitionKeyColumns);
     ConfigHelper.setInputCqlQueryClusteringColumns(
         conf, clusteringColumns.toArray(new String[clusteringColumns.size()]));
 
@@ -218,6 +223,8 @@ public final class CassandraKijiTableInputFormat
     Preconditions.checkNotNull(job, "job must not be null");
     Preconditions.checkNotNull(tableURI, "tableURI must not be null");
     Preconditions.checkNotNull(dataRequest, "dataRequest must not be null");
+    Preconditions.checkArgument(tableURI.isCassandra());
+    Preconditions.checkArgument(tableURI.toString().startsWith("kiji-cassandra"));
 
     final Configuration conf = job.getConfiguration();
 
@@ -229,6 +236,7 @@ public final class CassandraKijiTableInputFormat
     final String serializedRequest =
         Base64.encodeBase64String(SerializationUtils.serialize(dataRequest));
     conf.set(KijiConfKeys.KIJI_INPUT_DATA_REQUEST, serializedRequest);
+    LOG.info("Writing Kiji table URI \"" + tableURI + "\" to Configuration.");
     conf.set(KijiConfKeys.KIJI_INPUT_TABLE_URI, tableURI.toString());
 
     // TODO: Need to pick a better exception class here...
@@ -281,8 +289,11 @@ public final class CassandraKijiTableInputFormat
       mDataRequest = (KijiDataRequest) SerializationUtils.deserialize(dataRequestBytes);
       mRecordReader = new MultiQueryRecordReader();
 
+      String uriString = conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI);
+      LOG.info("Read URI from conf: " + uriString);
+
       final KijiURI inputURI =
-          KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
+          CassandraKijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
       mKiji = Kiji.Factory.open(inputURI, conf);
       mTable = (CassandraKijiTable)mKiji.openTable(inputURI.getTable());
       mLayout = mTable.getLayout();
