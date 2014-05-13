@@ -141,6 +141,11 @@
   </build>
 
   <dependencies>
+      <dependency>
+          <groupId>com.google.guava</groupId>
+          <artifactId>guava</artifactId>
+          <version>15.0</version>
+      </dependency>
     <dependency>
       <groupId>org.kiji.annotations</groupId>
       <artifactId>annotations</artifactId>
@@ -228,6 +233,7 @@
       <groupId>com.github.cassandra2-hadoop2</groupId>
       <artifactId>cassandra2-hadoop2</artifactId>
       <version>0.1-SNAPSHOT</version>
+      <scope>compile</scope>
   </dependency>
     <dependency>
       <groupId>org.apache.hadoop</groupId>
@@ -297,6 +303,24 @@
           <plugin>
             <groupId>org.kiji.maven.plugins</groupId>
             <artifactId>hbase-maven-plugin</artifactId>
+          </plugin>
+
+          <plugin>
+              <groupId>org.kiji.maven.plugins</groupId>
+              <artifactId>cassandra-maven-plugin</artifactId>
+              <version>1.0-SNAPSHOT</version>
+              <executions>
+                  <execution>
+                      <goals>
+                          <goal>start</goal>
+                          <goal>stop</goal>
+                      </goals>
+                  </execution>
+              </executions>
+              <configuration>
+                  <numnodes>2</numnodes>
+                  <initial.ip>127.0.0.10</initial.ip>
+              </configuration>
           </plugin>
 
           <plugin>

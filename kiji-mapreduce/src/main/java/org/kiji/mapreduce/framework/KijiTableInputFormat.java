@@ -200,6 +200,7 @@ public final class KijiTableInputFormat
     Preconditions.checkNotNull(job, "job must not be null");
     Preconditions.checkNotNull(tableURI, "tableURI must not be null");
     Preconditions.checkNotNull(dataRequest, "dataRequest must not be null");
+    Preconditions.checkArgument(!tableURI.isCassandra());
 
     final Configuration conf = job.getConfiguration();
 
