@@ -30,6 +30,7 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.io.Text;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,99 +39,46 @@ import org.kiji.mapreduce.gather.GathererContext;
 import org.kiji.mapreduce.gather.KijiGatherJobBuilder;
 import org.kiji.mapreduce.gather.KijiGatherer;
 import org.kiji.mapreduce.output.MapReduceJobOutputs;
-import org.kiji.mapreduce.testlib.SimpleTableMapReducer;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiDataRequest;
-import org.kiji.schema.KijiInstaller;
 import org.kiji.schema.KijiRowData;
-import org.kiji.schema.KijiTable;
-import org.kiji.schema.KijiTableWriter;
 import org.kiji.schema.KijiURI;
-import org.kiji.schema.avro.TableLayoutDesc;
+import org.kiji.schema.cassandra.CassandraKijiInstaller;
 import org.kiji.schema.layout.KijiTableLayout;
 import org.kiji.schema.layout.KijiTableLayouts;
 import org.kiji.schema.testutil.AbstractKijiIntegrationTest;
 import org.kiji.schema.util.InstanceBuilder;
-import org.kiji.schema.util.ResourceUtils;
-import org.kiji.schema.cassandra.CassandraKijiInstaller;
 
 /** Tests running a table map/reducer. */
 public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegrationTest {
   private static final Logger LOG =
       LoggerFactory.getLogger(IntegrationTestCassandraTableMapReducer.class);
 
-  @Test
-  public void testTableMapReducer() throws Exception {
-    final Configuration conf = createConfiguration();
-    final FileSystem fs = FileSystem.get(conf);
+  private static Kiji mKiji;
+  private static KijiURI mUri;
+  private static KijiURI mTableUri;
+
+  @BeforeClass
+  public static void populateTable() throws Exception {
+    final Configuration conf = HBaseConfiguration.create();
 
     // Create a Kiji instance.
-    final KijiURI uri;
-    final String quorum = conf.get(HConstants.ZOOKEEPER_QUORUM);
-    final int clientPort =
-        conf.getInt(HConstants.ZOOKEEPER_CLIENT_PORT, HConstants.DEFAULT_ZOOKEPER_CLIENT_PORT);
-    uri = KijiURI.newBuilder(String.format(
+    mUri = KijiURI.newBuilder(String.format(
         "kiji-cassandra://%s:%s/127.0.0.10/9042/test",
-        //"kiji://%s:%s/test",
-        quorum,
-        clientPort
+        conf.get(HConstants.ZOOKEEPER_QUORUM),
+        conf.getInt(HConstants.ZOOKEEPER_CLIENT_PORT, HConstants.DEFAULT_ZOOKEPER_CLIENT_PORT)
     )).build();
-    LOG.info("ZooKeeper quorum = " + quorum);
-    LOG.info("ZooKeeper port = " + clientPort);
-    LOG.info("Installing to URI " + uri);
-
+    LOG.info("Installing to URI " + mUri);
     try {
-      CassandraKijiInstaller.get().install(uri, conf);
-      //KijiInstaller.get().install(uri, conf);
-      LOG.info("Created Kiji instance at " + uri);
+      CassandraKijiInstaller.get().install(mUri, conf);
+      LOG.info("Created Kiji instance at " + mUri);
     } catch (IOException ioe) {
       LOG.warn("Could not create Kiji instance.");
       assertTrue("Did not start.", false);
     }
 
-    /*
-    final Kiji kiji = Kiji.Factory.open(uri, conf);
-    try {
-      final int nregions = 16;
-      final TableLayoutDesc layout = KijiMRTestLayouts.getTestLayout();
-      final String tableName = layout.getName();
-      kiji.createTable(layout, nregions);
-
-      final KijiTable table = kiji.openTable(tableName);
-      try {
-        {
-          final KijiTableWriter writer = table.openTableWriter();
-          for (int i = 0; i < 10; ++i) {
-            writer.put(table.getEntityId("row-" + i), "primitives", "int", i % 3);
-          }
-          writer.close();
-        }
-
-        final Path output = new Path(fs.getUri().toString(),
-            String.format("/%s-%s-%d/table-mr-output",
-                getClass().getName(), mTestName.getMethodName(), System.currentTimeMillis()));
-
-        final KijiMapReduceJob mrjob = KijiGatherJobBuilder.create()
-            .withConf(conf)
-            .withGatherer(SimpleTableMapReducer.TableMapper.class)
-            .withReducer(SimpleTableMapReducer.TableReducer.class)
-            .withInputTable(table.getURI())
-            .withOutput(MapReduceJobOutputs.newHFileMapReduceJobOutput(table.getURI(), output, 16))
-            .build();
-        if (!mrjob.run()) {
-          Assert.fail("MapReduce job failed");
-        }
-
-      } finally {
-        ResourceUtils.releaseOrLog(table);
-      }
-
-    } finally {
-      ResourceUtils.releaseOrLog(kiji);
-    }
-    */
     // Create a table with a simple table layout.
-    final Kiji kiji = Kiji.Factory.open(uri, conf);
+    final Kiji kiji = Kiji.Factory.open(mUri, conf);
     try {
       final KijiTableLayout layout = KijiTableLayouts.getTableLayout("org/kiji/mapreduce/layout/foo-test-rkf2.json");
       final long timestamp = System.currentTimeMillis();
@@ -168,9 +116,16 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
     } finally {
       kiji.release();
     }
-    final KijiURI tableUri = KijiURI.newBuilder(uri.toString()).withTableName("foo").build();
-    assertTrue(tableUri.isCassandra());
-    LOG.info("Table URI = " + tableUri);
+    mTableUri = KijiURI.newBuilder(mUri.toString()).withTableName("foo").build();
+    assertTrue(mTableUri.isCassandra());
+    LOG.info("Table URI = " + mTableUri);
+  }
+
+  @Test
+  public void testTableMapReducer() throws Exception {
+    final Configuration conf = createConfiguration();
+    final FileSystem fs = FileSystem.get(conf);
+
 
     final Path output = new Path(fs.getUri().toString(),
         String.format("/%s-%d/table-mr-output", getClass().getName(), System.currentTimeMillis()));
@@ -179,7 +134,7 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
         .withConf(conf)
         .withGatherer(TableMapper.class)
         .withReducer(TableReducer.class)
-        .withInputTable(tableUri)
+        .withInputTable(mTableUri)
         .withOutput(MapReduceJobOutputs.newTextMapReduceJobOutput(output, 16))
         .build();
     /*
