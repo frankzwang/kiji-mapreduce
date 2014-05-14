@@ -19,14 +19,20 @@
 
 package org.kiji.mapreduce;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
@@ -34,7 +40,9 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.io.Text;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,20 +53,27 @@ import org.kiji.mapreduce.output.MapReduceJobOutputs;
 import org.kiji.mapreduce.produce.KijiProduceJobBuilder;
 import org.kiji.mapreduce.produce.KijiProducer;
 import org.kiji.mapreduce.produce.ProducerContext;
+import org.kiji.schema.EntityId;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiDataRequest;
 import org.kiji.schema.KijiRowData;
+import org.kiji.schema.KijiTable;
+import org.kiji.schema.KijiTableReader;
 import org.kiji.schema.KijiURI;
 import org.kiji.schema.cassandra.CassandraKijiInstaller;
 import org.kiji.schema.layout.KijiTableLayout;
 import org.kiji.schema.layout.KijiTableLayouts;
-import org.kiji.schema.testutil.AbstractKijiIntegrationTest;
 import org.kiji.schema.util.InstanceBuilder;
 
 /** Tests running a table map/reducer. */
-public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegrationTest {
+public class IntegrationTestCassandraTableMapReducer {
   private static final Logger LOG =
       LoggerFactory.getLogger(IntegrationTestCassandraTableMapReducer.class);
+
+  @Rule
+  public TestName mTestName = new TestName();
+
+  private static final String BASE_TEST_URI_PROPERTY = "kiji.test.cluster.uri";
 
   private static Kiji mKiji;
   private static KijiURI mUri;
@@ -68,12 +83,17 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
   public static void populateTable() throws Exception {
     final Configuration conf = HBaseConfiguration.create();
 
-    // Create a Kiji instance.
-    mUri = KijiURI.newBuilder(String.format(
-        "kiji-cassandra://%s:%s/127.0.0.10/9042/test",
-        conf.get(HConstants.ZOOKEEPER_QUORUM),
-        conf.getInt(HConstants.ZOOKEEPER_CLIENT_PORT, HConstants.DEFAULT_ZOOKEPER_CLIENT_PORT)
-    )).build();
+    if (System.getProperty(BASE_TEST_URI_PROPERTY) != null) {
+      mUri = KijiURI.newBuilder(System.getProperty(BASE_TEST_URI_PROPERTY)).build();
+    } else {
+      // Create a Kiji instance.
+      mUri = KijiURI.newBuilder(String.format(
+          "kiji-cassandra://%s:%s/127.0.0.10/9042/test",
+          conf.get(HConstants.ZOOKEEPER_QUORUM),
+          conf.getInt(HConstants.ZOOKEEPER_CLIENT_PORT, HConstants.DEFAULT_ZOOKEPER_CLIENT_PORT)
+      )).build();
+    }
+
     LOG.info("Installing to URI " + mUri);
     try {
       CassandraKijiInstaller.get().install(mUri, conf);
@@ -84,47 +104,51 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
     }
 
     // Create a table with a simple table layout.
-    final Kiji kiji = Kiji.Factory.open(mUri, conf);
-    try {
-      final KijiTableLayout layout = KijiTableLayouts.getTableLayout("org/kiji/mapreduce/layout/foo-test-rkf2.json");
-      final long timestamp = System.currentTimeMillis();
+    mKiji = Kiji.Factory.open(mUri, conf);
+    final KijiTableLayout layout = KijiTableLayouts.getTableLayout("org/kiji/mapreduce/layout/foo-test-rkf2.json");
+    final long timestamp = System.currentTimeMillis();
 
-      // Insert some data into the table.
-      new InstanceBuilder(kiji)
-          .withTable(layout.getName(), layout)
-          .withRow("gwu@usermail.example.com")
-          .withFamily("info")
-          .withQualifier("email").withValue(timestamp, "gwu@usermail.example.com")
-          .withQualifier("name").withValue(timestamp, "Garrett Wu")
-          .withRow("aaron@usermail.example.com")
-          .withFamily("info")
-          .withQualifier("email").withValue(timestamp, "aaron@usermail.example.com")
-          .withQualifier("name").withValue(timestamp, "Aaron Kimball")
-          .withRow("christophe@usermail.example.com")
-          .withFamily("info")
-          .withQualifier("email")
-          .withValue(timestamp, "christophe@usermail.example.com")
-          .withQualifier("name").withValue(timestamp, "Christophe Bisciglia")
-          .withRow("kiyan@usermail.example.com")
-          .withFamily("info")
-          .withQualifier("email").withValue(timestamp, "kiyan@usermail.example.com")
-          .withQualifier("name").withValue(timestamp, "Kiyan Ahmadizadeh")
-          .withRow("john.doe@gmail.com")
-          .withFamily("info")
-          .withQualifier("email").withValue(timestamp, "john.doe@gmail.com")
-          .withQualifier("name").withValue(timestamp, "John Doe")
-          .withRow("jane.doe@gmail.com")
-          .withFamily("info")
-          .withQualifier("email").withValue(timestamp, "jane.doe@gmail.com")
-          .withQualifier("name").withValue(timestamp, "Jane Doe")
-          .build();
+    // Insert some data into the table.
+    new InstanceBuilder(mKiji)
+        .withTable(layout.getName(), layout)
+        .withRow("amy@foo.com")
+        .withFamily("info")
+        .withQualifier("email").withValue(timestamp, "amy@foo.com")
+        .withQualifier("name").withValue(timestamp, "Amy")
+        .withRow("bob@foo.com")
+        .withFamily("info")
+        .withQualifier("email").withValue(timestamp, "bob@foo.com")
+        .withQualifier("name").withValue(timestamp, "Bob")
+        .withRow("christine@foo.com")
+        .withFamily("info")
+        .withQualifier("email").withValue(timestamp, "christine@foo.com")
+        .withQualifier("name").withValue(timestamp, "Christine")
+        .withRow("dan@foo.com")
+        .withFamily("info")
+        .withQualifier("email").withValue(timestamp, "dan@foo.com")
+        .withQualifier("name").withValue(timestamp, "Dan")
+        .withRow("erin@foo.com")
+        .withFamily("info")
+        .withQualifier("email").withValue(timestamp, "erin@foo.com")
+        .withQualifier("name").withValue(timestamp, "Erin")
+        .withRow("frank@foo.com")
+        .withFamily("info")
+        .withQualifier("email").withValue(timestamp, "frank@foo.com")
+        .withQualifier("name").withValue(timestamp, "Frank")
+        .build();
 
-    } finally {
-      kiji.release();
-    }
     mTableUri = KijiURI.newBuilder(mUri.toString()).withTableName("foo").build();
     assertTrue(mTableUri.isCassandra());
     LOG.info("Table URI = " + mTableUri);
+  }
+
+  private Configuration createConfiguration() {
+    return HBaseConfiguration.create();
+  }
+
+  private Path createOutputFile() {
+    return new Path(String.format("/%s-%s-%d/part-r-00000",
+        getClass().getName(), mTestName.getMethodName(), System.currentTimeMillis()));
   }
 
   @Test
@@ -132,33 +156,46 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
     final Configuration conf = createConfiguration();
     final FileSystem fs = FileSystem.get(conf);
 
-
-    final Path output = new Path(fs.getUri().toString(),
-        String.format("/%s-%d/table-mr-output", getClass().getName(), System.currentTimeMillis()));
+    final Path output = createOutputFile();
 
     final KijiMapReduceJob mrjob = KijiGatherJobBuilder.create()
         .withConf(conf)
         .withGatherer(TableMapper.class)
         .withReducer(TableReducer.class)
         .withInputTable(mTableUri)
-        .withOutput(MapReduceJobOutputs.newTextMapReduceJobOutput(output, 16))
+        .withOutput(MapReduceJobOutputs.newTextMapReduceJobOutput(output.getParent(), 1))
         .build();
-    /*
-    assertEquals(
-        CassandraKijiTableInputFormat.class.getCanonicalName(),
-        mrjob.getHadoopJob().getInputFormatClass().getCanonicalName()
-    );
-    */
+
     if (!mrjob.run()) {
       Assert.fail("MapReduce job failed");
     }
-    // TODO: Actually check the output...
+    // Verify that the output matches what's expected.
+    // Should just see email address and name.
+    assertTrue(fs.exists(output.getParent()));
+    final FSDataInputStream in = fs.open(output);
+    final Set<String> actual = Sets.newHashSet(IOUtils.toString(in).trim().split("\n"));
+    final Set<String> expected = Sets.newHashSet(
+        "amy@foo.com\tAmy",
+        "bob@foo.com\tBob",
+        "christine@foo.com\tChristine",
+        "dan@foo.com\tDan",
+        "erin@foo.com\tErin",
+        "frank@foo.com\tFrank"
+    );
+    assertEquals("Result of job wasn't what was expected", expected, actual);
+
+    // Clean up.
+    fs.delete(output.getParent(), true);
+
+    IOUtils.closeQuietly(in);
   }
 
   @Test
   public void testProducer() throws Exception {
     final Configuration conf = createConfiguration();
     final FileSystem fs = FileSystem.get(conf);
+
+
 
 
     final Path output = new Path(fs.getUri().toString(),
@@ -174,29 +211,45 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
       Assert.fail("MapReduce job failed");
     }
 
+    // Validate that the results are correct.
+    KijiTable table = mKiji.openTable(mTableUri.getTable());
+    try {
+      KijiTableReader reader = mKiji.openTable(mTableUri.getTable()).openTableReader();
+      try {
+        KijiDataRequest dataRequest = KijiDataRequest.create("derived", "domain");
+        List<String> names = Lists.newArrayList("Amy", "Bob", "Christine", "Dan", "Erin", "Frank");
+        for (String name : names) {
+          EntityId entityId = table.getEntityId(name.toLowerCase() + "@foo.com");
+          KijiRowData rowData = reader.get(entityId, dataRequest);
+          assertNotNull(rowData.getMostRecentCell("derived", "domain"));
+          assertEquals("foo.com", rowData.getMostRecentCell("derived", "domain").getData().toString());
+        }
+      } finally {
+        reader.close();
+      }
+    } finally {
+      table.release();
+    }
 
   }
   /** Table mapper that processes Kiji rows and emits (key, value) pairs. */
   public static class TableMapper extends KijiGatherer<Text, Text> {
-    /** {@inheritDoc} */
     @Override
     public KijiDataRequest getDataRequest() {
       return KijiDataRequest.create("info");
     }
 
-    /** {@inheritDoc} */
     @Override
     public Class<?> getOutputKeyClass() {
       return Text.class;
     }
 
-    /** {@inheritDoc} */
     @Override
     public Class<?> getOutputValueClass() {
       return Text.class;
     }
 
-    /** {@inheritDoc} */
+    // Writes out email as the key and name as the value.
     @Override
     public void gather(KijiRowData input, GathererContext<Text, Text> context)
         throws IOException {
@@ -204,6 +257,7 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
         LOG.info("Row key = " + input.getEntityId());
         final String email = input.getMostRecentValue("info", "email").toString();
         final String name = input.getMostRecentValue("info", "name").toString();
+        LOG.info("Writing key, value = " + email + ", " + name);
         context.write(new Text(email), new Text(name));
       } catch (NullPointerException npe) {
         LOG.info("Problem getting email and name from row data " + input);
@@ -214,27 +268,24 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
 
   /** Table reduces that processes (key, value) pairs and emits Kiji puts. */
   public static class TableReducer extends KijiReducer<Text, Text, Text, Text> {
-    /** {@inheritDoc} */
     @Override
     public Class<?> getOutputKeyClass() {
       return Text.class;
     }
 
-    /** {@inheritDoc} */
     @Override
     public Class<?> getOutputValueClass() {
       return Text.class;
     }
-    /** {@inheritDoc} */
+
+    // This reducer is just the identity function.
     @Override
     protected void reduce(Text key, Iterable<Text> values, Context context)
         throws IOException, InterruptedException {
-      StringBuilder sb = new StringBuilder();
       for (Text text : values) {
-        sb.append(text.toString());
+        LOG.info("Writing key, value = " + key.toString() + ", " + text.toString());
+        context.write(key, text);
       }
-      String allKeys = sb.toString();
-      context.write(key, new Text(allKeys));
     }
   }
 
