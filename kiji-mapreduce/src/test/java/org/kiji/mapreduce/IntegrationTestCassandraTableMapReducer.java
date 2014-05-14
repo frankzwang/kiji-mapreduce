@@ -22,7 +22,10 @@ package org.kiji.mapreduce;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.util.List;
 
+import com.google.common.base.Splitter;
+import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -39,6 +42,9 @@ import org.kiji.mapreduce.gather.GathererContext;
 import org.kiji.mapreduce.gather.KijiGatherJobBuilder;
 import org.kiji.mapreduce.gather.KijiGatherer;
 import org.kiji.mapreduce.output.MapReduceJobOutputs;
+import org.kiji.mapreduce.produce.KijiProduceJobBuilder;
+import org.kiji.mapreduce.produce.KijiProducer;
+import org.kiji.mapreduce.produce.ProducerContext;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiDataRequest;
 import org.kiji.schema.KijiRowData;
@@ -122,7 +128,7 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
   }
 
   @Test
-  public void testTableMapReducer() throws Exception {
+  public void testGatherer() throws Exception {
     final Configuration conf = createConfiguration();
     final FileSystem fs = FileSystem.get(conf);
 
@@ -143,6 +149,27 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
         mrjob.getHadoopJob().getInputFormatClass().getCanonicalName()
     );
     */
+    if (!mrjob.run()) {
+      Assert.fail("MapReduce job failed");
+    }
+    // TODO: Actually check the output...
+  }
+
+  @Test
+  public void testProducer() throws Exception {
+    final Configuration conf = createConfiguration();
+    final FileSystem fs = FileSystem.get(conf);
+
+
+    final Path output = new Path(fs.getUri().toString(),
+        String.format("/%s-%d/table-mr-output", getClass().getName(), System.currentTimeMillis()));
+
+    final KijiMapReduceJob mrjob = KijiProduceJobBuilder.create()
+        .withConf(conf)
+        .withProducer(DomainProducer.class)
+        .withInputTable(mTableUri)
+        .withOutput(MapReduceJobOutputs.newDirectKijiTableMapReduceJobOutput(mTableUri))
+        .build();
     if (!mrjob.run()) {
       Assert.fail("MapReduce job failed");
     }
@@ -208,6 +235,39 @@ public class IntegrationTestCassandraTableMapReducer extends AbstractKijiIntegra
       }
       String allKeys = sb.toString();
       context.write(key, new Text(allKeys));
+    }
+  }
+
+  /** Producer that gets the domain from an e-mail address. */
+  public static class DomainProducer extends KijiProducer {
+    @Override
+    public KijiDataRequest getDataRequest() {
+      return KijiDataRequest.create("info");
+    }
+
+    @Override
+    public String getOutputColumn() {
+      return "derived:domain";
+    }
+
+    @Override
+    public void produce(KijiRowData input, ProducerContext context) throws IOException {
+      try {
+        LOG.info("Row key = " + input.getEntityId());
+        final String email = input.getMostRecentValue("info", "email").toString();
+        final String name = input.getMostRecentValue("info", "name").toString();
+
+        // Split off the domain name from the e-mail address.
+        if (email.contains("@")) {
+          List<String> userAndDomain = Lists.newArrayList(Splitter.on("@").split(email));
+          if (userAndDomain.size() == 2) {
+            final String domain = userAndDomain.get(1);
+            context.put(domain);
+          }
+        }
+      } catch (NullPointerException npe) {
+        LOG.info("Problem getting email and name from row data " + input);
+      }
     }
   }
 }
