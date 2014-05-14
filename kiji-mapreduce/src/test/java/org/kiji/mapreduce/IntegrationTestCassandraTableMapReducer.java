@@ -25,11 +25,13 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.avro.util.Utf8;
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -49,6 +51,10 @@ import org.slf4j.LoggerFactory;
 import org.kiji.mapreduce.gather.GathererContext;
 import org.kiji.mapreduce.gather.KijiGatherJobBuilder;
 import org.kiji.mapreduce.gather.KijiGatherer;
+import org.kiji.mapreduce.kvstore.KeyValueStore;
+import org.kiji.mapreduce.kvstore.KeyValueStoreReader;
+import org.kiji.mapreduce.kvstore.RequiredStores;
+import org.kiji.mapreduce.kvstore.lib.KijiTableKeyValueStore;
 import org.kiji.mapreduce.output.MapReduceJobOutputs;
 import org.kiji.mapreduce.produce.KijiProduceJobBuilder;
 import org.kiji.mapreduce.produce.KijiProducer;
@@ -57,6 +63,7 @@ import org.kiji.schema.EntityId;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiDataRequest;
 import org.kiji.schema.KijiRowData;
+import org.kiji.schema.KijiRowKeyComponents;
 import org.kiji.schema.KijiTable;
 import org.kiji.schema.KijiTableReader;
 import org.kiji.schema.KijiURI;
@@ -161,6 +168,45 @@ public class IntegrationTestCassandraTableMapReducer {
     final KijiMapReduceJob mrjob = KijiGatherJobBuilder.create()
         .withConf(conf)
         .withGatherer(TableMapper.class)
+        .withReducer(TableReducer.class)
+        .withInputTable(mTableUri)
+        .withOutput(MapReduceJobOutputs.newTextMapReduceJobOutput(output.getParent(), 1))
+        .build();
+
+    if (!mrjob.run()) {
+      Assert.fail("MapReduce job failed");
+    }
+    // Verify that the output matches what's expected.
+    // Should just see email address and name.
+    assertTrue(fs.exists(output.getParent()));
+    final FSDataInputStream in = fs.open(output);
+    final Set<String> actual = Sets.newHashSet(IOUtils.toString(in).trim().split("\n"));
+    final Set<String> expected = Sets.newHashSet(
+        "amy@foo.com\tAmy",
+        "bob@foo.com\tBob",
+        "christine@foo.com\tChristine",
+        "dan@foo.com\tDan",
+        "erin@foo.com\tErin",
+        "frank@foo.com\tFrank"
+    );
+    assertEquals("Result of job wasn't what was expected", expected, actual);
+
+    // Clean up.
+    fs.delete(output.getParent(), true);
+
+    IOUtils.closeQuietly(in);
+  }
+
+  @Test
+  public void testKvs() throws Exception {
+    final Configuration conf = createConfiguration();
+    final FileSystem fs = FileSystem.get(conf);
+
+    final Path output = createOutputFile();
+
+    final KijiMapReduceJob mrjob = KijiGatherJobBuilder.create()
+        .withConf(conf)
+        .withGatherer(MapperWithKeyValueStore.class)
         .withReducer(TableReducer.class)
         .withInputTable(mTableUri)
         .withOutput(MapReduceJobOutputs.newTextMapReduceJobOutput(output.getParent(), 1))
@@ -320,5 +366,54 @@ public class IntegrationTestCassandraTableMapReducer {
         LOG.info("Problem getting email and name from row data " + input);
       }
     }
+  }
+
+  /** Mapper with a Kiji table KVS. */
+  public static class MapperWithKeyValueStore extends KijiGatherer<Text, Text> {
+    @Override
+    public KijiDataRequest getDataRequest() {
+      return KijiDataRequest.create("info");
+    }
+
+    @Override
+    public Map<String, KeyValueStore<?, ?>> getRequiredStores() {
+      return RequiredStores.just("kiji-table", KijiTableKeyValueStore.builder()
+      .withTable(mTableUri)
+      .withColumn("info", "name")
+      .build()
+      );
+    }
+
+    @Override
+    public Class<?> getOutputKeyClass() {
+      return Text.class;
+    }
+
+    @Override
+    public Class<?> getOutputValueClass() {
+      return Text.class;
+    }
+
+    // Writes out email as the key and name as the value.
+    @Override
+    public void gather(KijiRowData input, GathererContext<Text, Text> context)
+        throws IOException {
+
+      LOG.info("Row key = " + input.getEntityId());
+      final String email = input.getMostRecentValue("info", "email").toString();
+      final String name = input.getMostRecentValue("info", "name").toString();
+      LOG.info("Got name " + name + " and e-mail " + email);
+
+      KeyValueStoreReader<KijiRowKeyComponents, Utf8> nameStore = context.getStore("kiji-table");
+      Utf8 nameFromStore = nameStore.get(KijiRowKeyComponents.fromComponents(email));
+      if (nameFromStore == null || !nameFromStore.toString().equals(name)) {
+        LOG.info("Name from KVS is " + nameFromStore + ". NO MATCH!");
+      } else {
+        LOG.info("Name from KVS matches name from table.");
+        LOG.info("Writing key, value = " + email + ", " + name);
+        context.write(new Text(email), new Text(name));
+      }
+    }
+
   }
 }
