@@ -112,7 +112,8 @@ public class IntegrationTestCassandraTableMapReducer {
 
     // Create a table with a simple table layout.
     mKiji = Kiji.Factory.open(mUri, conf);
-    final KijiTableLayout layout = KijiTableLayouts.getTableLayout("org/kiji/mapreduce/layout/foo-test-rkf2.json");
+    final KijiTableLayout layout =
+        KijiTableLayouts.getTableLayout("org/kiji/mapreduce/layout/foo-test-rkf2.json");
     final long timestamp = System.currentTimeMillis();
 
     // Insert some data into the table.
@@ -268,7 +269,8 @@ public class IntegrationTestCassandraTableMapReducer {
           EntityId entityId = table.getEntityId(name.toLowerCase() + "@foo.com");
           KijiRowData rowData = reader.get(entityId, dataRequest);
           assertNotNull(rowData.getMostRecentCell("derived", "domain"));
-          assertEquals("foo.com", rowData.getMostRecentCell("derived", "domain").getData().toString());
+          assertEquals("foo.com",
+              rowData.getMostRecentCell("derived", "domain").getData().toString());
         }
       } finally {
         reader.close();
