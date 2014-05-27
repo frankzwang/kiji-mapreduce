@@ -148,8 +148,12 @@ public final class CassandraKijiTableInputFormat
     final String dataRequestB64 = conf.get(KijiConfKeys.KIJI_INPUT_DATA_REQUEST);
     Preconditions.checkNotNull(dataRequestB64, "Missing data request in job configuration.");
     final byte[] dataRequestBytes = Base64.decodeBase64(Bytes.toBytes(dataRequestB64));
+
     KijiDataRequest dataRequest =
         (KijiDataRequest) SerializationUtils.deserialize(dataRequestBytes);
+    Preconditions.checkNotNull(dataRequest);
+
+    LOG.info("Translating Kiji data request into Cassandra queries.");
 
     DataRequestToQuerySpecsConverter converter = new DataRequestToQuerySpecsConverter(
         dataRequest,
@@ -157,6 +161,7 @@ public final class CassandraKijiTableInputFormat
     );
 
     for (CqlQuerySpec cqlQuerySpec : converter.makeQueries()) {
+      LOG.info("Adding CQL query " + cqlQuerySpec);
       ConfigHelper.setInputCqlQuery(conf, cqlQuerySpec);
     }
 
@@ -164,7 +169,7 @@ public final class CassandraKijiTableInputFormat
     KijiTableLayout layout = cassandraTable.getLayout();
     List<String> clusteringColumns = CQLUtils.getEntityIdClusterColumns(layout);
     List<String> partitionKeyColumns = CQLUtils.getPartitionKeyColumns(layout);
-    LOG.info("Clustering columns = " + clusteringColumns);
+    LOG.info("Clustering columns (in entity ID) = " + clusteringColumns);
     LOG.info("Partitioning columns = " + partitionKeyColumns);
     ConfigHelper.setInputCqlQueryClusteringColumns(
         conf, clusteringColumns.toArray(new String[clusteringColumns.size()]));
@@ -189,6 +194,8 @@ public final class CassandraKijiTableInputFormat
     final KijiURI inputTableURI =
         KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
     assert(inputTableURI.isCassandra());
+
+    LOG.info("Getting input splits.");
 
     //final Kiji kiji = Kiji.Factory.open(inputTableURI, conf);
 
