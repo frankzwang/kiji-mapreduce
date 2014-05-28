@@ -20,10 +20,13 @@
 package org.kiji.mapreduce.framework;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.List;
 import java.util.Set;
 
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
@@ -61,17 +64,18 @@ import org.kiji.schema.KijiRowKeyComponents;
 import org.kiji.schema.KijiTable;
 import org.kiji.schema.KijiTableReaderBuilder;
 import org.kiji.schema.KijiURI;
-import org.kiji.schema.cassandra.KijiManagedCassandraTableName;
+import org.kiji.schema.cassandra.CassandraColumnName;
+import org.kiji.schema.cassandra.CassandraTableName;
 import org.kiji.schema.filter.KijiRowFilter;
 import org.kiji.schema.impl.BoundColumnReaderSpec;
-import org.kiji.schema.impl.LayoutCapsule;
 import org.kiji.schema.impl.cassandra.CQLUtils;
+import org.kiji.schema.impl.cassandra.CassandraByteUtil;
 import org.kiji.schema.impl.cassandra.CassandraKiji;
 import org.kiji.schema.impl.cassandra.CassandraKijiRowData;
 import org.kiji.schema.impl.cassandra.CassandraKijiTable;
 import org.kiji.schema.impl.cassandra.CassandraKijiTableReader;
 import org.kiji.schema.layout.KijiTableLayout;
-import org.kiji.schema.layout.impl.CassandraColumnNameTranslator;
+import org.kiji.schema.layout.CassandraColumnNameTranslator;
 import org.kiji.schema.layout.impl.CellDecoderProvider;
 import org.kiji.schema.util.ResourceUtils;
 
@@ -137,7 +141,7 @@ public final class CassandraKijiTableInputFormat
         KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
     assert(inputTableURI.isCassandra());
 
-    final Kiji kiji = Kiji.Factory.open(inputTableURI, conf);
+    final Kiji kiji = Kiji.Factory.open(inputTableURI);
     assert(kiji instanceof CassandraKiji);
     final CassandraKiji cassandraKiji = (CassandraKiji) kiji;
     final KijiTable table = cassandraKiji.openTable(inputTableURI.getTable());
@@ -167,7 +171,22 @@ public final class CassandraKijiTableInputFormat
 
     // Get a list of all of the columns used for the entity ID.
     KijiTableLayout layout = cassandraTable.getLayout();
-    List<String> clusteringColumns = CQLUtils.getEntityIdClusterColumns(layout);
+
+    // Get the clustering columns that are part of the EntityID.
+    List<String> clusteringColumns = CQLUtils.getClusterColumns(layout);
+    Preconditions.checkArgument(clusteringColumns.containsAll(Lists.newArrayList(
+        CQLUtils.LOCALITY_GROUP_COL,
+        CQLUtils.FAMILY_COL,
+        CQLUtils.QUALIFIER_COL,
+        CQLUtils.VERSION_COL
+    )));
+    clusteringColumns.removeAll(Lists.newArrayList(
+        CQLUtils.LOCALITY_GROUP_COL,
+        CQLUtils.FAMILY_COL,
+        CQLUtils.QUALIFIER_COL,
+        CQLUtils.VERSION_COL
+    ));
+
     List<String> partitionKeyColumns = CQLUtils.getPartitionKeyColumns(layout);
     LOG.info("Clustering columns (in entity ID) = " + clusteringColumns);
     LOG.info("Partitioning columns = " + partitionKeyColumns);
@@ -184,7 +203,8 @@ public final class CassandraKijiTableInputFormat
     ConfigHelper.setInputNativeTransportPort(conf, cassandraPort);
 
     // TODO: Allow user to specify target number of splits.
-
+    cassandraTable.release();
+    kiji.release();
   }
 
   /** {@inheritDoc} */
@@ -301,7 +321,7 @@ public final class CassandraKijiTableInputFormat
 
       final KijiURI inputURI =
           CassandraKijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
-      mKiji = Kiji.Factory.open(inputURI, conf);
+      mKiji = Kiji.Factory.open(inputURI);
       mTable = (CassandraKijiTable)mKiji.openTable(inputURI.getTable());
       mLayout = mTable.getLayout();
       mEntityIdFactory = EntityIdFactory.getFactory(mTable.getLayout());
@@ -309,9 +329,8 @@ public final class CassandraKijiTableInputFormat
       // Get a bunch of stuff that we'll need to go from a Row to a CassandraKijiRowData.
       mReader = CassandraKijiTableReader.create((CassandraKijiTable)mTable);
 
-      final LayoutCapsule capsule = mTable.getLayoutCapsule();
       mCellDecoderProvider = new CellDecoderProvider(
-          capsule.getLayout(),
+          mTable.getLayout(),
           Maps.<KijiColumnName, BoundColumnReaderSpec>newHashMap(),
           Sets.<BoundColumnReaderSpec>newHashSet(),
           KijiTableReaderBuilder.DEFAULT_CACHE_MISS);
@@ -408,8 +427,7 @@ public final class CassandraKijiTableInputFormat
         CassandraKijiTable table) {
       mKijiDataRequest = kijiDataRequest;
       mTable = table;
-      mColumnNameTranslator =
-          (CassandraColumnNameTranslator)table.getLayoutCapsule().getKijiColumnNameTranslator();
+      mColumnNameTranslator = CassandraColumnNameTranslator.from(mTable.getLayout());
     }
 
     /**
@@ -420,32 +438,24 @@ public final class CassandraKijiTableInputFormat
      */
     private Set<CqlQuerySpec> makeQueries() throws IOException {
       // Get the Cassandra table name for non-counter values.
-      String nonCounterTableName = KijiManagedCassandraTableName.getKijiTableName(
-          mTable.getURI(),
-          mTable.getName()).toString();
+      final CassandraTableName nonCounterTableName =
+          CassandraTableName.getKijiTableName(mTable.getURI());
 
       // Get the counter table name.
-      String counterTableName = KijiManagedCassandraTableName.getKijiCounterTableName(
-          mTable.getURI(),
-          mTable.getName()).toString();
+      final CassandraTableName counterTableName =
+          CassandraTableName.getKijiCounterTableName(mTable.getURI());
+
+      // TODO: Min/max versions
 
       // A single Kiji data request can result in many Cassandra queries, so we use asynchronous IO
       // and keep a list of all of the futures that will contain results from Cassandra.
       Set<CqlQuerySpec> querySpecs = Sets.newHashSet();
-
-      // Timestamp limits for queries.
-      //long maxTimestamp = mKijiDataRequest.getMaxTimestamp();
-      //long minTimestamp = mKijiDataRequest.getMinTimestamp();
-
-      // Use the C* admin to send queries to the C* cluster.
-      //CassandraAdmin admin = table.getAdmin();
 
       // For now, to keep things simple, we have a separate request for each column, even if there
       // are multiple columns of interest in the same column family that we could potentially put
       // together into a single query.
       for (KijiDataRequest.Column column : mKijiDataRequest.getColumns()) {
         LOG.info("Processing data request for data request column " + column);
-
         if (column.isPagingEnabled()) {
           // The user will have to use an explicit KijiPager to get this data.
           LOG.info("...this column is paged, but this is not a KijiPager request, skipping...");
@@ -453,59 +463,52 @@ public final class CassandraKijiTableInputFormat
         }
 
         // Translate the Kiji column name.
-        KijiColumnName kijiColumnName = new KijiColumnName(column.getName());
-        LOG.info("Kiji column name for the requested column is " + kijiColumnName);
-        String localityGroup = mColumnNameTranslator.toCassandraLocalityGroup(kijiColumnName);
-        String family = mColumnNameTranslator.toCassandraColumnFamily(kijiColumnName);
-        String qualifier = mColumnNameTranslator.toCassandraColumnQualifier(kijiColumnName);
+        KijiColumnName kijiColumn = new KijiColumnName(column.getName());
+        LOG.info("Kiji column name for the requested column is " + kijiColumn);
+        CassandraColumnName cassandraColumn =
+            mColumnNameTranslator.toCassandraColumnName(kijiColumn);
 
-        // TODO: Optimize these queries such that we need only one RPC per column family.
-        // (Right now a data request that asks for "info:foo" and "info:bar" would trigger two
-        // separate CqlQuerySpecs.
+        Preconditions.checkArgument(cassandraColumn.containsFamily(),
+            "Column must contain a locality group and family.");
 
         // Determine whether we need to read non-counter values and/or counter values.
-        List<String> tableNames = Lists.newArrayList();
-
-        if (maybeContainsNonCounterValues(mTable, kijiColumnName)) {
+        List<CassandraTableName> tableNames = Lists.newArrayList();
+        if (maybeContainsNonCounterValues(mTable, kijiColumn)) {
           tableNames.add(nonCounterTableName);
         }
-
-        if (maybeContainsCounterValues(mTable, kijiColumnName)) {
+        if (maybeContainsCounterValues(mTable, kijiColumn)) {
           tableNames.add(counterTableName);
         }
 
-        for (String cassandraTableName : tableNames) {
+        for (CassandraTableName cassandraTableName : tableNames) {
           // Just fetch all columns.
 
           // WHERE clauses:
           StringBuilder sb = new StringBuilder();
+          List<Serializable> whereArgs = Lists.newArrayList();
           sb
               .append(" WHERE ")
               .append(CQLUtils.LOCALITY_GROUP_COL)
-              .append(String.format("='%s' AND ", localityGroup))
+              .append("=? AND ")
               .append(CQLUtils.FAMILY_COL)
-              .append(String.format("='%s'", family));
+              .append("=?");
+          whereArgs.add(cassandraColumn.getLocalityGroup());
+          whereArgs.add(CassandraByteUtil.byteBuffertoBytes(cassandraColumn.getFamilyBuffer()));
 
-          if (qualifier != null) {
+          if (cassandraColumn.containsQualifier()) {
             sb.append(" AND ")
                 .append(CQLUtils.QUALIFIER_COL)
-                .append(String.format("='%s' ", qualifier));
+                .append("=?");
+            whereArgs.add(CassandraByteUtil.byteBuffertoBytes(
+                cassandraColumn.getQualifierBuffer()));
           }
           String whereClause = sb.toString();
 
           // Break up the table name into separate keyspace and table (without quotes).
-          List<String> keyspaceAndTable = Lists.newArrayList(
-            Splitter.on("\".\"").split(cassandraTableName)
-          );
-          Preconditions.checkArgument(keyspaceAndTable.size() == 2);
-          assert(keyspaceAndTable.get(0).startsWith("\""));
-          assert(keyspaceAndTable.get(1).endsWith("\""));
-          String keyspaceNoQuotes = keyspaceAndTable.get(0).replace("\"", "");
-          String tableNoQuotes = keyspaceAndTable.get(1).replace("\"", "");
           CqlQuerySpec query = CqlQuerySpec.builder()
-              .withKeyspace(keyspaceNoQuotes)
-              .withTable(tableNoQuotes)
-              .withWhereClause(whereClause)
+              .withKeyspace(cassandraTableName.getKeyspace())
+              .withTable(cassandraTableName.getTable())
+              .withWhereClause(whereClause, whereArgs.toArray(new Serializable[whereArgs.size()]))
               .build();
           querySpecs.add(query);
         }
@@ -515,17 +518,9 @@ public final class CassandraKijiTableInputFormat
         // Add a dummy entity ID scan...
 
         // Break up the table name into separate keyspace and table (without quotes).
-        List<String> keyspaceAndTable = Lists.newArrayList(
-            Splitter.on("\".\"").split(nonCounterTableName)
-        );
-        Preconditions.checkArgument(keyspaceAndTable.size() == 2);
-        assert(keyspaceAndTable.get(0).startsWith("\""));
-        assert(keyspaceAndTable.get(1).endsWith("\""));
-        String keyspaceNoQuotes = keyspaceAndTable.get(0).replace("\"", "");
-        String tableNoQuotes = keyspaceAndTable.get(1).replace("\"", "");
         CqlQuerySpec query = CqlQuerySpec.builder()
-            .withKeyspace(keyspaceNoQuotes)
-            .withTable(tableNoQuotes)
+            .withKeyspace(nonCounterTableName.getKeyspace())
+            .withTable(nonCounterTableName.getTable())
             .build();
         querySpecs.add(query);
       }
@@ -551,7 +546,6 @@ public final class CassandraKijiTableInputFormat
       try {
         // Pick a table name depending on whether this column is a counter or not.
         if (table
-            .getLayoutCapsule()
             .getLayout()
             .getCellSpec(kijiColumnName)
             .isCounter()) {
@@ -581,7 +575,6 @@ public final class CassandraKijiTableInputFormat
       try {
         // Pick a table name depending on whether this column is a counter or not.
         isCounter = table
-            .getLayoutCapsule()
             .getLayout()
             .getCellSpec(kijiColumnName)
             .isCounter();

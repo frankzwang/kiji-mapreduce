@@ -40,6 +40,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.io.Text;
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -67,7 +68,7 @@ import org.kiji.schema.KijiRowKeyComponents;
 import org.kiji.schema.KijiTable;
 import org.kiji.schema.KijiTableReader;
 import org.kiji.schema.KijiURI;
-import org.kiji.schema.cassandra.CassandraKijiInstaller;
+import org.kiji.schema.impl.cassandra.CassandraKijiInstaller;
 import org.kiji.schema.layout.KijiTableLayout;
 import org.kiji.schema.layout.KijiTableLayouts;
 import org.kiji.schema.util.InstanceBuilder;
@@ -82,7 +83,6 @@ public class IntegrationTestCassandraTableMapReducer {
 
   private static final String BASE_TEST_URI_PROPERTY = "kiji.test.cluster.uri";
 
-  private static Kiji mKiji;
   private static KijiURI mUri;
   private static KijiURI mTableUri;
 
@@ -103,7 +103,7 @@ public class IntegrationTestCassandraTableMapReducer {
 
     LOG.info("Installing to URI " + mUri);
     try {
-      CassandraKijiInstaller.get().install(mUri, conf);
+      CassandraKijiInstaller.get().install(mUri);
       LOG.info("Created Kiji instance at " + mUri);
     } catch (IOException ioe) {
       LOG.warn("Could not create Kiji instance.");
@@ -111,13 +111,13 @@ public class IntegrationTestCassandraTableMapReducer {
     }
 
     // Create a table with a simple table layout.
-    mKiji = Kiji.Factory.open(mUri, conf);
+    final Kiji kiji = Kiji.Factory.open(mUri);
     final KijiTableLayout layout =
         KijiTableLayouts.getTableLayout("org/kiji/mapreduce/layout/foo-test-rkf2.json");
     final long timestamp = System.currentTimeMillis();
 
     // Insert some data into the table.
-    new InstanceBuilder(mKiji)
+    new InstanceBuilder(kiji)
         .withTable(layout.getName(), layout)
         .withRow("amy@foo.com")
         .withFamily("info")
@@ -148,7 +148,9 @@ public class IntegrationTestCassandraTableMapReducer {
     mTableUri = KijiURI.newBuilder(mUri.toString()).withTableName("foo").build();
     assertTrue(mTableUri.isCassandra());
     LOG.info("Table URI = " + mTableUri);
+    kiji.release();
   }
+
 
   private Configuration createConfiguration() {
     return HBaseConfiguration.create();
@@ -259,9 +261,10 @@ public class IntegrationTestCassandraTableMapReducer {
     }
 
     // Validate that the results are correct.
-    KijiTable table = mKiji.openTable(mTableUri.getTable());
+    final Kiji kiji = Kiji.Factory.open(mTableUri);
+    KijiTable table = kiji.openTable(mTableUri.getTable());
     try {
-      KijiTableReader reader = mKiji.openTable(mTableUri.getTable()).openTableReader();
+      KijiTableReader reader = table.openTableReader();
       try {
         KijiDataRequest dataRequest = KijiDataRequest.create("derived", "domain");
         List<String> names = Lists.newArrayList("Amy", "Bob", "Christine", "Dan", "Erin", "Frank");
@@ -277,9 +280,10 @@ public class IntegrationTestCassandraTableMapReducer {
       }
     } finally {
       table.release();
+      kiji.release();
     }
-
   }
+
   /** Table mapper that processes Kiji rows and emits (key, value) pairs. */
   public static class TableMapper extends KijiGatherer<Text, Text> {
     @Override
