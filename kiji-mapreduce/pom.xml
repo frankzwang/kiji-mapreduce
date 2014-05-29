@@ -165,11 +165,6 @@
     </dependency>
     <dependency>
       <groupId>org.kiji.schema</groupId>
-      <artifactId>kiji-schema-cassandra</artifactId>
-      <version>${kiji-schema.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.kiji.schema</groupId>
       <artifactId>kiji-schema-extras</artifactId>
       <version>${kiji-schema.version}</version>
       <scope>provided</scope>
@@ -177,13 +172,6 @@
     <dependency>
       <groupId>org.kiji.schema</groupId>
       <artifactId>kiji-schema</artifactId>
-      <version>${kiji-schema.version}</version>
-      <type>test-jar</type>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.kiji.schema</groupId>
-      <artifactId>kiji-schema-cassandra</artifactId>
       <version>${kiji-schema.version}</version>
       <type>test-jar</type>
       <scope>test</scope>
@@ -315,24 +303,6 @@
           <plugin>
             <groupId>org.kiji.maven.plugins</groupId>
             <artifactId>hbase-maven-plugin</artifactId>
-          </plugin>
-
-          <plugin>
-              <groupId>org.kiji.maven.plugins</groupId>
-              <artifactId>cassandra-maven-plugin</artifactId>
-              <version>1.0-SNAPSHOT</version>
-              <executions>
-                  <execution>
-                      <goals>
-                          <goal>start</goal>
-                          <goal>stop</goal>
-                      </goals>
-                  </execution>
-              </executions>
-              <configuration>
-                  <numnodes>2</numnodes>
-                  <initial.ip>127.0.0.10</initial.ip>
-              </configuration>
           </plugin>
 
           <plugin>

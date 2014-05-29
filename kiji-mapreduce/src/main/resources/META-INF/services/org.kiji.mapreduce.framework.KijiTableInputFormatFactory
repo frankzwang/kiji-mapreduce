@@ -1,2 +1,1 @@
 org.kiji.mapreduce.framework.HBaseKijiTableInputFormatFactory
-org.kiji.mapreduce.framework.CassandraKijiTableInputFormatFactory

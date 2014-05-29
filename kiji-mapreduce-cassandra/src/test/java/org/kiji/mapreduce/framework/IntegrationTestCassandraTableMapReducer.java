@@ -17,7 +17,7 @@
  * limitations under the License.
  */
 
-package org.kiji.mapreduce;
+package org.kiji.mapreduce.framework;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -40,6 +40,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -48,6 +49,8 @@ import org.junit.rules.TestName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.kiji.mapreduce.KijiMapReduceJob;
+import org.kiji.mapreduce.KijiReducer;
 import org.kiji.mapreduce.gather.GathererContext;
 import org.kiji.mapreduce.gather.KijiGatherJobBuilder;
 import org.kiji.mapreduce.gather.KijiGatherer;
@@ -331,7 +334,8 @@ public class IntegrationTestCassandraTableMapReducer {
 
     // This reducer is just the identity function.
     @Override
-    protected void reduce(Text key, Iterable<Text> values, Context context)
+    protected void reduce(
+        Text key, Iterable<Text> values, Reducer<Text, Text, Text, Text>.Context context)
         throws IOException, InterruptedException {
       for (Text text : values) {
         LOG.info("Writing key, value = " + key.toString() + ", " + text.toString());
