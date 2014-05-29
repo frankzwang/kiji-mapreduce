@@ -35,5 +35,5 @@
   <suppress checks=".*" files="src/main/java/org/apache/"/>
 
   <!-- Don't check this public member in Cassandra integration test. -->
-  <suppress checks="VisibilityModifierCheck" files="src/test/java/org/kiji/mapreduce/framework/IntegrationTestCassandraTableMapReducer.java" />
+  <suppress checks="VisibilityModifierCheck" files="src/test/java/org/kiji/mapreduce/framework/" />
 </suppressions>

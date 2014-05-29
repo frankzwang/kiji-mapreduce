@@ -177,7 +177,7 @@ public final class CassandraKijiTableInputFormat
      *
      * @param conf Configuration for the target Kiji.
      */
-    private CassandraKijiTableRecordReader(Configuration conf) {
+    CassandraKijiTableRecordReader(Configuration conf) {
       // Get data request from the job configuration.
       final String dataRequestB64 = conf.get(KijiConfKeys.KIJI_INPUT_DATA_REQUEST);
       Preconditions.checkNotNull(dataRequestB64, "Missing data request in job configuration.");
@@ -188,6 +188,17 @@ public final class CassandraKijiTableInputFormat
     /** {@inheritDoc} */
     @Override
     public void initialize(InputSplit split, TaskAttemptContext context) throws IOException {
+      initializeWithConf(split, context.getConfiguration());
+    }
+
+    /**
+     * Version of `initialize` that takes a `Configuration.`  Makes testing easier.
+     *
+     * @param split Input split for this record reader.
+     * @param conf Hadoop Configuration.
+     * @throws java.io.IOException if there is a problem opening a connection to the Kiji instance.
+     */
+    void initializeWithConf(InputSplit split, Configuration conf) throws IOException {
       Preconditions.checkArgument(split instanceof CassandraInputSplit,
           "InputSplit is not a KijiTableSplit: %s", split);
       mSplit = (CassandraInputSplit) split;
@@ -195,7 +206,6 @@ public final class CassandraKijiTableInputFormat
       mTokenRangeIterator = mSplit.getTokenRangeIterator();
       assert(mTokenRangeIterator.hasNext());
 
-      final Configuration conf = context.getConfiguration();
       final KijiURI inputURI =
           KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
 
@@ -241,6 +251,9 @@ public final class CassandraKijiTableInputFormat
       CassandraTokenRange nextTokenRange = mTokenRangeIterator.next();
 
       // Get a new scanner for this token range!
+      if (null != mScanner) {
+        ResourceUtils.closeOrLog(mScanner);
+      }
       mScanner = mReader.getScannerWithOptions(
           mDataRequest,
           CassandraKijiScannerOptions.withTokens(
