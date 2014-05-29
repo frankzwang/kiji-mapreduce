@@ -22,12 +22,12 @@ package org.kiji.mapreduce.framework;
 /**
 * Describes a Cassandra token range associated with a subsplit.
 */
-final class TokenRange {
+final class CassandraTokenRange {
   /** Starting token (inclusive). */
-  private final String mStartToken;
+  private final long mStartToken;
 
   /** Ending token (exclusive). */
-  private final String mEndToken;
+  private final long mEndToken;
 
   /**
    * Construct a new token range.
@@ -35,7 +35,7 @@ final class TokenRange {
    * @param startToken for the token range (inclusive).
    * @param endToken for the token range (inclusive).
    */
-  TokenRange(String startToken, String endToken) {
+  CassandraTokenRange(long startToken, long endToken) {
     this.mStartToken = startToken;
     this.mEndToken = endToken;
   }
@@ -43,14 +43,14 @@ final class TokenRange {
   /**
    * @return the starting token for this token range.
    */
-  String getStartToken() {
+  long getStartToken() {
     return mStartToken;
   }
 
   /**
    * @return the ending token for this token range.
    */
-  String getEndToken() {
+  long getEndToken() {
     return mEndToken;
   }
 

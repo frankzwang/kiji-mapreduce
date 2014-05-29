@@ -118,21 +118,23 @@ public final class CassandraKijiTableInputFormat
         // Get a list of all of the subsplits.  A "subsplit" contains the following:
         // - A token range (corresponding to a virtual node in the C* cluster)
         // - A list of replica nodes for that token range
-        final SubsplitCreator subsplitCreator = new SubsplitCreator(session);
-        final List<Subsplit> subsplitsFromTokens = subsplitCreator.createSubsplits();
+        final CassandraSubSplitCreator cassandraSubSplitCreator =
+            new CassandraSubSplitCreator(session);
+        final List<CassandraSubSplit> subsplitsFromTokens =
+            cassandraSubSplitCreator.createSubSplits();
         LOG.debug(String.format("Created %d subsplits from tokens", subsplitsFromTokens.size()));
 
         // In this InputFormat, we allow the user to specify a desired number of InputSplits.  We
         // will likely have far more subsplits (vnodes) than desired InputSplits.  Therefore, we
         // combine subsplits (hopefully those that share the same replica nodes) until we get to our
         // desired InputSplit count.
-        final SubsplitCombiner subsplitCombiner = new SubsplitCombiner();
+        final CassandraSubSplitCombiner cassandraSubSplitCombiner = new CassandraSubSplitCombiner();
 
         // Get a list of all of the token ranges in the Cassandra cluster.
         List<InputSplit> inputSplitList = Lists.newArrayList();
 
         // Java is annoying here about casting a list.
-        inputSplitList.addAll(subsplitCombiner.combineSubsplits(subsplitsFromTokens));
+        inputSplitList.addAll(cassandraSubSplitCombiner.combineSubsplits(subsplitsFromTokens));
         cluster.close();
         LOG.info(String.format("Created a total of %d InputSplits", inputSplitList.size()));
         for (InputSplit inputSplit : inputSplitList) {
@@ -161,9 +163,9 @@ public final class CassandraKijiTableInputFormat
     private CassandraKijiTableReader mReader = null;
     private KijiRowScanner mScanner = null;
     private Iterator<KijiRowData> mIterator = null;
-    private MultiQueryInputSplit mSplit = null;
+    private CassandraInputSplit mSplit = null;
     private CassandraKijiRowData mCurrentRow = null;
-    private Iterator<TokenRange> mTokenRangeIterator = null;
+    private Iterator<CassandraTokenRange> mTokenRangeIterator = null;
 
     private long mStartPos;
     private long mStopPos;
@@ -186,9 +188,9 @@ public final class CassandraKijiTableInputFormat
     /** {@inheritDoc} */
     @Override
     public void initialize(InputSplit split, TaskAttemptContext context) throws IOException {
-      Preconditions.checkArgument(split instanceof MultiQueryInputSplit,
+      Preconditions.checkArgument(split instanceof CassandraInputSplit,
           "InputSplit is not a KijiTableSplit: %s", split);
-      mSplit = (MultiQueryInputSplit) split;
+      mSplit = (CassandraInputSplit) split;
       // Create an iterator to go through all of the token ranges.
       mTokenRangeIterator = mSplit.getTokenRangeIterator();
       assert(mTokenRangeIterator.hasNext());
@@ -236,14 +238,14 @@ public final class CassandraKijiTableInputFormat
       Preconditions.checkArgument(mTokenRangeIterator.hasNext());
       Preconditions.checkArgument(null == mIterator || !mIterator.hasNext());
 
-      TokenRange nextTokenRange = mTokenRangeIterator.next();
+      CassandraTokenRange nextTokenRange = mTokenRangeIterator.next();
 
       // Get a new scanner for this token range!
       mScanner = mReader.getScannerWithOptions(
           mDataRequest,
           CassandraKijiScannerOptions.withTokens(
-              Long.parseLong(nextTokenRange.getStartToken()),
-              Long.parseLong(nextTokenRange.getEndToken())));
+              nextTokenRange.getStartToken(),
+              nextTokenRange.getEndToken()));
           mIterator = mScanner.iterator();
       mCurrentRow = null;
     }

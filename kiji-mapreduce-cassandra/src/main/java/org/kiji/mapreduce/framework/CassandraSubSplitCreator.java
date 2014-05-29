@@ -37,8 +37,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Class responsible for creating subsplits.
  */
-class SubsplitCreator {
-  private static final Logger LOG = LoggerFactory.getLogger(SubsplitCreator.class);
+class CassandraSubSplitCreator {
+  private static final Logger LOG = LoggerFactory.getLogger(CassandraSubSplitCreator.class);
 
   /** Open session. */
   private final Session mSession;
@@ -47,7 +47,7 @@ class SubsplitCreator {
    * Constructor for SubsplitCreator.
    * @param session open Cassandra Session.
    */
-  public SubsplitCreator(Session session) {
+  public CassandraSubSplitCreator(Session session) {
     mSession = session;
 
     // Check that this session uses the load-balancing policy that we need.
@@ -58,32 +58,37 @@ class SubsplitCreator {
   }
 
   /**
+   * Used only for testing.
+   */
+  CassandraSubSplitCreator() {
+    mSession = null;
+  }
+
+  /**
    * Create a list of subsplits for this Cassandra cluster.  Each subsplit contains an IP address
    * and a token range.
    * @return The subsplits.
    */
-  public List<Subsplit> createSubsplits() {
+  public List<CassandraSubSplit> createSubSplits() {
     // Create subsplits that initially contain a mapping from token ranges to primary hosts.
-    List<Subsplit> subsplits = createInitialSubsplits();
-
+    Map<Long, String> tokensToMasterNodes = getTokenToMasterNodeMapping();
+    List<CassandraSubSplit> subsplits = createInitialSubSplits(tokensToMasterNodes);
     // TODO: Add replica nodes to the subsplits.
-
     return subsplits;
   }
 
   /**
    * Create an initial set of subsplits, one per vnode.
    *
+   * @param tokensToMasterNodes Map from tokens to their master nodes.
    * @return the list of subsplits.
    */
-  private List<Subsplit> createInitialSubsplits() {
-    // Retrieve all of the tokens for each host from the system tables.
-    Map<String, String> tokensToMasterNodes = getTokenToMasterNodeMapping();
+  List<CassandraSubSplit> createInitialSubSplits(Map<Long, String> tokensToMasterNodes) {
 
     // Go from a mapping between tokens and hosts to a mapping between token *ranges* and hosts.
     List<Long> sortedTokens = Lists.newArrayList();
-    for (String tok : tokensToMasterNodes.keySet()) {
-      sortedTokens.add(Long.parseLong(tok));
+    for (Long tok : tokensToMasterNodes.keySet()) {
+      sortedTokens.add(tok);
     }
     Collections.sort(sortedTokens);
     LOG.debug(String.format("Found %d total tokens", sortedTokens.size()));
@@ -92,24 +97,24 @@ class SubsplitCreator {
 
     // We need to add the global min and global max token values so that we make sure that our
     // subsplits cover all of the data in the cluster.
-    sortedTokens.add(Subsplit.RING_START_TOKEN);
-    sortedTokens.add(Subsplit.RING_END_TOKEN);
+    sortedTokens.add(CassandraSubSplit.RING_START_TOKEN);
+    sortedTokens.add(CassandraSubSplit.RING_END_TOKEN);
     Collections.sort(sortedTokens);
-    Preconditions.checkArgument(sortedTokens.get(0) == Subsplit.RING_START_TOKEN);
+    Preconditions.checkArgument(sortedTokens.get(0) == CassandraSubSplit.RING_START_TOKEN);
     Preconditions.checkArgument(
-        sortedTokens.get(sortedTokens.size() - 1) == Subsplit.RING_END_TOKEN);
+        sortedTokens.get(sortedTokens.size() - 1) == CassandraSubSplit.RING_END_TOKEN);
 
     // Loop through all of the pairs of tokens, creating subsplits for every pair.  Remember in
     // C* that the master node for a token gets all data between the *previous* token and the token
     // in question, so we assign ownership of a given subsplit to the node associated with the
     // second (greater) of the two tokens.
-    List<Subsplit> subsplits = Lists.newArrayList();
+    List<CassandraSubSplit> subsplits = Lists.newArrayList();
 
     for (int tokenIndex = 0; tokenIndex < sortedTokens.size() - 1; tokenIndex++) {
       long lowerBoundToken = sortedTokens.get(tokenIndex);
 
-      String startToken = Long.toString(lowerBoundToken);
-      String endToken = sortedTokens.get(tokenIndex + 1).toString();
+      long startToken = lowerBoundToken;
+      long endToken = sortedTokens.get(tokenIndex + 1);
 
       String hostForEndToken = tokensToMasterNodes.get(endToken);
       if (tokenIndex == sortedTokens.size() - 2) {
@@ -121,13 +126,13 @@ class SubsplitCreator {
 
       // Ownership for a given node looks like (previous token, my token], so we add 1 to the
       // start token, unless the start token is the first token in our entire ring.
-      final String startTokenAdjustedForExclusive;
+      final long startTokenAdjustedForExclusive;
       if (tokenIndex > 0) {
-        startTokenAdjustedForExclusive = Long.toString(lowerBoundToken + 1);
+        startTokenAdjustedForExclusive = lowerBoundToken + 1;
       } else {
-        startTokenAdjustedForExclusive = Long.toString(lowerBoundToken);
+        startTokenAdjustedForExclusive = lowerBoundToken;
       }
-      Subsplit subsplit = Subsplit.createFromHost(
+      CassandraSubSplit subsplit = CassandraSubSplit.createFromHost(
           startTokenAdjustedForExclusive,
           endToken,
           hostForEndToken);
@@ -141,8 +146,8 @@ class SubsplitCreator {
    *
    * @return A map from tokens (stored as strings) to the master nodes (stored as IP addresses).
    */
-  private Map<String, String> getTokenToMasterNodeMapping() {
-    Map<String, String> tokensToMasterNodes = Maps.newHashMap();
+  private Map<Long, String> getTokenToMasterNodeMapping() {
+    Map<Long, String> tokensToMasterNodes = Maps.newHashMap();
 
     // Get the set of tokens for the local host.
     updateTokenListForLocalHost(mSession, tokensToMasterNodes);
@@ -160,7 +165,7 @@ class SubsplitCreator {
    */
   private void updateTokenListForLocalHost(
       Session session,
-      Map<String, String> tokensToHosts) {
+      Map<Long, String> tokensToHosts) {
     String queryString = "SELECT tokens FROM system.local;";
     ResultSet resultSet = session.execute(queryString);
     List<Row> results = resultSet.all();
@@ -178,7 +183,7 @@ class SubsplitCreator {
    */
   private void updateTokenListForPeers(
       Session session,
-      Map<String, String> tokensToHosts) {
+      Map<Long, String> tokensToHosts) {
 
     String queryString = "SELECT rpc_address, tokens FROM system.peers;";
     ResultSet resultSet = session.execute(queryString);
@@ -202,14 +207,15 @@ class SubsplitCreator {
   private void updateTokenListForSingleNode(
       String hostName,
       Set<String> tokens,
-      Map<String, String> tokensToHosts) {
+      Map<Long, String> tokensToHosts) {
 
     LOG.debug(String.format("Got %d tokens for host %s", tokens.size(), hostName));
 
     // For every token, create an entry in the map from that token to the host.
     for (String token : tokens) {
-      Preconditions.checkArgument(!tokensToHosts.containsKey(token));
-      tokensToHosts.put(token, hostName);
+      Long tokenAsLong = Long.parseLong(token);
+      Preconditions.checkArgument(!tokensToHosts.containsKey(tokenAsLong));
+      tokensToHosts.put(tokenAsLong, hostName);
     }
   }
 }

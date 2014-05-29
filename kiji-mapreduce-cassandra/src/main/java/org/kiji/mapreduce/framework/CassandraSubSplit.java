@@ -33,13 +33,13 @@ import com.google.common.collect.Sets;
  *
  * This class essentially maps to a Cassandra virtual node (vnode).
  */
-final class Subsplit {
+final class CassandraSubSplit {
   // TODO: Add separate field for actual owner of token, versus replica nodes?
   /** Starting token (inclusive).  */
-  private final String mStartToken;
+  private final long mStartToken;
 
   /** Ending token (inclusive). */
-  private final String mEndToken;
+  private final long mEndToken;
 
   /** List of hosts that contain copies of data in the token range. */
   private final Set<String> mHosts;
@@ -58,8 +58,9 @@ final class Subsplit {
    * @param hosts A set of replica nodes for this token range.
    * @return A new subsplit for this token range.
    */
-  public static Subsplit createFromHostSet(String startToken, String endToken, Set<String> hosts) {
-    return new Subsplit(startToken, endToken, hosts);
+  public static CassandraSubSplit createFromHostSet(
+      long startToken, long endToken, Set<String> hosts) {
+    return new CassandraSubSplit(startToken, endToken, hosts);
   }
 
   /**
@@ -70,10 +71,10 @@ final class Subsplit {
    * @param host The master node for this token range.
    * @return A new subsplit for this token range.
    */
-  public static Subsplit createFromHost(String startToken, String endToken, String host) {
+  public static CassandraSubSplit createFromHost(long startToken, long endToken, String host) {
     Set<String> hosts = Sets.newHashSet();
     hosts.add(host);
-    return new Subsplit(startToken, endToken, hosts);
+    return new CassandraSubSplit(startToken, endToken, hosts);
   }
 
   /**
@@ -83,7 +84,7 @@ final class Subsplit {
    * @param endToken The maximum token for the subsplit (inclusive).
    * @param hosts A set of replica nodes for this token range.
    */
-  private Subsplit(String startToken, String endToken, Set<String> hosts) {
+  private CassandraSubSplit(long startToken, long endToken, Set<String> hosts) {
     Preconditions.checkNotNull(hosts);
     Preconditions.checkArgument(hosts.size() > 0);
     for (String host : hosts) {
@@ -111,7 +112,7 @@ final class Subsplit {
    *
    * @return The minimum token value for this subsplit.
    */
-  public String getStartToken() {
+  public long getStartToken() {
     return mStartToken;
   }
 
@@ -120,7 +121,7 @@ final class Subsplit {
    *
    * @return The maximum token value for this subsplit.
    */
-  public String getEndToken() {
+  public long getEndToken() {
     return mEndToken;
   }
 

@@ -37,7 +37,7 @@ import com.google.common.collect.Sets;
  *   <li>As many subsplits as possible share a common replica node</li>
  * </ul>
  */
-class SubsplitCombiner {
+class CassandraSubSplitCombiner {
 
   /**
    * Combine subsplits into InputSplits, attempting to group together subsplits that share replica
@@ -46,8 +46,8 @@ class SubsplitCombiner {
    * @param targetNumSplits Target number of input splits to have after combining subsplits.
    * @return A list of InputSplits.
    */
-  public List<MultiQueryInputSplit> combineSubsplits(
-      Collection<Subsplit> subsplits, int targetNumSplits) {
+  public List<CassandraInputSplit> combineSubsplits(
+      Collection<CassandraSubSplit> subsplits, int targetNumSplits) {
 
     // Estimate the number of subsplits per input split.
     final int numSubsplits = subsplits.size();
@@ -55,15 +55,15 @@ class SubsplitCombiner {
         numSubsplits / targetNumSplits;
 
     // Group subsplits by host and try to combine subsplits that share a host.
-    List<Subsplit> subsplitsSortedByHost = getSubsplitsSortedByHost(subsplits);
+    List<CassandraSubSplit> subsplitsSortedByHost = getSubsplitsSortedByHost(subsplits);
 
-    List<MultiQueryInputSplit> inputSplits = Lists.newArrayList();
+    List<CassandraInputSplit> inputSplits = Lists.newArrayList();
 
     int subsplitIndex = 0;
     while (subsplitIndex < numSubsplits) {
 
       // Start a new InputSplit.
-      Set<Subsplit> subsplitsToCombine = Sets.newHashSet();
+      Set<CassandraSubSplit> subsplitsToCombine = Sets.newHashSet();
 
       // Go until we get to our target number of subsplits / input split.
       while (true) {
@@ -73,7 +73,7 @@ class SubsplitCombiner {
         }
 
         // Add this subsplit to the current working input split.
-        Subsplit subsplitToAdd = subsplitsSortedByHost.get(subsplitIndex);
+        CassandraSubSplit subsplitToAdd = subsplitsSortedByHost.get(subsplitIndex);
         subsplitsToCombine.add(subsplitToAdd);
         subsplitIndex++;
 
@@ -86,7 +86,7 @@ class SubsplitCombiner {
       assert(subsplitsToCombine.size() > 0);
 
       // Now create the input split.
-      MultiQueryInputSplit inputSplit = MultiQueryInputSplit.createFromSubplits(subsplitsToCombine);
+      CassandraInputSplit inputSplit = CassandraInputSplit.createFromSubplits(subsplitsToCombine);
       inputSplits.add(inputSplit);
     }
     return inputSplits;
@@ -101,7 +101,7 @@ class SubsplitCombiner {
    * @param subsplits A collection of subsplits to combine.
    * @return A list of InputSplits.
    */
-  public List<MultiQueryInputSplit> combineSubsplits(Collection<Subsplit> subsplits) {
+  public List<CassandraInputSplit> combineSubsplits(Collection<CassandraSubSplit> subsplits) {
     return combineSubsplits(subsplits, 4);
   }
 
@@ -111,12 +111,13 @@ class SubsplitCombiner {
    * @param unsortedSubsplits An unsorted collection of subsplits.
    * @return A list of the subsplits, sorted by host.
    */
-  private List<Subsplit> getSubsplitsSortedByHost(Collection<Subsplit> unsortedSubsplits) {
-    List<Subsplit> subsplitsSortedByHost = Lists.newArrayList(unsortedSubsplits);
+  private List<CassandraSubSplit> getSubsplitsSortedByHost(
+      Collection<CassandraSubSplit> unsortedSubsplits) {
+    List<CassandraSubSplit> subsplitsSortedByHost = Lists.newArrayList(unsortedSubsplits);
     Collections.sort(
         subsplitsSortedByHost,
-        new Comparator<Subsplit>() {
-          public int compare(Subsplit firstSubsplit, Subsplit secondSubsplit) {
+        new Comparator<CassandraSubSplit>() {
+          public int compare(CassandraSubSplit firstSubsplit, CassandraSubSplit secondSubsplit) {
             String firstHostList = firstSubsplit.getSortedHostListAsString();
             String secondHostList = secondSubsplit.getSortedHostListAsString();
             return firstHostList.compareTo(secondHostList);

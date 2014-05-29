@@ -70,7 +70,7 @@
   <Match>
     <Or>
       <Class name="org.kiji.mapreduce.framework.ConsistentHostOrderPolicy$1"/>
-      <Class name="org.kiji.mapreduce.framework.SubsplitCombiner$1"/>
+      <Class name="org.kiji.mapreduce.framework.CassandraSubSplitCombiner$1"/>
     </Or>
     <Bug pattern="SIC_INNER_SHOULD_BE_STATIC_ANON" />
   </Match>

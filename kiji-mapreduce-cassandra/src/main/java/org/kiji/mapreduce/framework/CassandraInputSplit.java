@@ -35,8 +35,8 @@ import org.apache.hadoop.mapreduce.InputSplit;
 /**
  * Class for InputSplits for Cassandra-backed Kiji instances.
  */
-final class MultiQueryInputSplit extends InputSplit implements Writable {
-  private List<TokenRange> mTokenRanges;
+final class CassandraInputSplit extends InputSplit implements Writable {
+  private List<CassandraTokenRange> mTokenRanges;
   private List<String> mHosts;
 
   // TODO: Is there a better answer here?
@@ -45,7 +45,7 @@ final class MultiQueryInputSplit extends InputSplit implements Writable {
   /**
    * Constructor.
    */
-  public MultiQueryInputSplit() {}
+  public CassandraInputSplit() {}
 
   /**
    * Creates an InputSplit from a single subsplit.
@@ -53,9 +53,10 @@ final class MultiQueryInputSplit extends InputSplit implements Writable {
    * @param subsplit from which to build an InputSplit.
    * @return the InputSplit.
    */
-  public static MultiQueryInputSplit createFromSubplit(Subsplit subsplit) {
-    return new MultiQueryInputSplit(
-        Lists.newArrayList(new TokenRange(subsplit.getStartToken(), subsplit.getEndToken())),
+  public static CassandraInputSplit createFromSubplit(CassandraSubSplit subsplit) {
+    return new CassandraInputSplit(
+        Lists.newArrayList(
+            new CassandraTokenRange(subsplit.getStartToken(), subsplit.getEndToken())),
         Lists.newArrayList(subsplit.getHosts())
     );
   }
@@ -66,14 +67,14 @@ final class MultiQueryInputSplit extends InputSplit implements Writable {
    * @param subsplits from which to build the input split.
    * @return the InputSplit.
    */
-  public static MultiQueryInputSplit createFromSubplits(Collection<Subsplit> subsplits) {
-    List<TokenRange> tokenRanges = Lists.newArrayList();
+  public static CassandraInputSplit createFromSubplits(Collection<CassandraSubSplit> subsplits) {
+    List<CassandraTokenRange> tokenRanges = Lists.newArrayList();
     Set<String> hosts = Sets.newHashSet();
-    for (Subsplit subsplit : subsplits) {
-      tokenRanges.add(new TokenRange(subsplit.getStartToken(), subsplit.getEndToken()));
+    for (CassandraSubSplit subsplit : subsplits) {
+      tokenRanges.add(new CassandraTokenRange(subsplit.getStartToken(), subsplit.getEndToken()));
       hosts.addAll(subsplit.getHosts());
     }
-    return new MultiQueryInputSplit(tokenRanges, Lists.newArrayList(hosts));
+    return new CassandraInputSplit(tokenRanges, Lists.newArrayList(hosts));
   }
 
   /**
@@ -82,7 +83,7 @@ final class MultiQueryInputSplit extends InputSplit implements Writable {
    * @param tokenRanges over which the InputSplit will query Cassandra.
    * @param hosts that own the data in the given token ranges.
    */
-  private MultiQueryInputSplit(List<TokenRange> tokenRanges, List<String> hosts) {
+  private CassandraInputSplit(List<CassandraTokenRange> tokenRanges, List<String> hosts) {
     this.mTokenRanges = tokenRanges;
     this.mHosts = hosts;
   }
@@ -106,9 +107,9 @@ final class MultiQueryInputSplit extends InputSplit implements Writable {
   @Override
   public void write(DataOutput out) throws IOException {
     out.writeInt(mTokenRanges.size());
-    for (TokenRange tokenRange : mTokenRanges) {
-      out.writeUTF(tokenRange.getStartToken());
-      out.writeUTF(tokenRange.getEndToken());
+    for (CassandraTokenRange tokenRange : mTokenRanges) {
+      out.writeLong(tokenRange.getStartToken());
+      out.writeLong(tokenRange.getEndToken());
     }
     out.writeInt(mHosts.size());
     for (String endpoint : mHosts) {
@@ -122,9 +123,9 @@ final class MultiQueryInputSplit extends InputSplit implements Writable {
     int numTokenRanges = in.readInt();
     mTokenRanges = Lists.newArrayList();
     for (int i = 0; i < numTokenRanges; i++) {
-      String startToken = in.readUTF();
-      String endToken = in.readUTF();
-      mTokenRanges.add(new TokenRange(startToken, endToken));
+      long startToken = in.readLong();
+      long endToken = in.readLong();
+      mTokenRanges.add(new CassandraTokenRange(startToken, endToken));
     }
     int numOfEndpoints = in.readInt();
     mHosts = Lists.newArrayList();
@@ -145,7 +146,7 @@ final class MultiQueryInputSplit extends InputSplit implements Writable {
   /**
    * @return an Iterator over the token ranges covered by this InputSplit.
    */
-  public Iterator<TokenRange> getTokenRangeIterator() {
+  public Iterator<CassandraTokenRange> getTokenRangeIterator() {
     return mTokenRanges.iterator();
   }
 }
