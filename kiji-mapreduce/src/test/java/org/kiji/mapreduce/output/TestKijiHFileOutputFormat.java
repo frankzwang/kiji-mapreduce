@@ -58,7 +58,6 @@ import org.kiji.mapreduce.framework.KijiConfKeys;
 import org.kiji.mapreduce.output.framework.KijiHFileOutputFormat;
 import org.kiji.mapreduce.platform.KijiMRPlatformBridge;
 import org.kiji.schema.Kiji;
-import org.kiji.schema.KijiInstaller;
 import org.kiji.schema.KijiURI;
 import org.kiji.schema.impl.hbase.HBaseKijiInstaller;
 import org.kiji.schema.layout.KijiTableLayout;

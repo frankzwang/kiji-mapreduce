@@ -1,5 +1,5 @@
 /**
- * (c) Copyright 2012 WibiData, Inc.
+ * (c) Copyright 2014 WibiData, Inc.
  *
  * See the NOTICE file distributed with this work for additional
  * information regarding copyright ownership.
@@ -23,14 +23,15 @@ import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
 
-import com.datastax.driver.core.Cluster;
-import com.datastax.driver.core.Session;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang.SerializationUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.client.HTableInterface;
+import org.apache.hadoop.hbase.mapreduce.TableSplit;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.JobContext;
@@ -41,28 +42,31 @@ import org.slf4j.LoggerFactory;
 
 import org.kiji.annotations.ApiAudience;
 import org.kiji.annotations.ApiStability;
-import org.kiji.schema.CassandraKijiURI;
+import org.kiji.mapreduce.impl.KijiTableSplit;
 import org.kiji.schema.EntityId;
+import org.kiji.schema.HBaseEntityId;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiColumnName;
 import org.kiji.schema.KijiDataRequest;
+import org.kiji.schema.KijiRegion;
 import org.kiji.schema.KijiRowData;
 import org.kiji.schema.KijiRowScanner;
 import org.kiji.schema.KijiTable;
 import org.kiji.schema.KijiTableReader;
+import org.kiji.schema.KijiTableReader.KijiScannerOptions;
 import org.kiji.schema.KijiURI;
-import org.kiji.schema.impl.cassandra.CassandraKijiRowData;
-import org.kiji.schema.impl.cassandra.CassandraKijiScannerOptions;
-import org.kiji.schema.impl.cassandra.CassandraKijiTableReader;
+import org.kiji.schema.filter.KijiRowFilter;
+import org.kiji.schema.hbase.HBaseScanOptions;
+import org.kiji.schema.impl.hbase.HBaseKijiRowData;
+import org.kiji.schema.impl.hbase.HBaseKijiTable;
 import org.kiji.schema.layout.ColumnReaderSpec;
 import org.kiji.schema.util.ResourceUtils;
 
 /** InputFormat for Hadoop MapReduce jobs reading from a Kiji table. */
 @ApiAudience.Framework
 @ApiStability.Stable
-public final class CassandraKijiTableInputFormat
+public final class HBaseKijiTableInputFormat
     extends KijiTableInputFormat {
-  private static final Logger LOG = LoggerFactory.getLogger(CassandraKijiTableInputFormat.class);
 
   /**
    * Number of bytes from the row-key to include when reporting progress.
@@ -91,54 +95,75 @@ public final class CassandraKijiTableInputFormat
       InputSplit split,
       TaskAttemptContext context
   ) throws IOException {
-    return new CassandraKijiTableRecordReader(mConf);
+    return new KijiTableRecordReader(mConf);
+  }
+
+  /**
+   * Reports the HBase table name for the specified Kiji table.
+   *
+   * @param table Kiji table to report the HBase table name of.
+   * @return the HBase table name for the specified Kiji table.
+   * @throws java.io.IOException on I/O error.
+   */
+  private static byte[] getHBaseTableName(KijiTable table) throws IOException {
+    final HBaseKijiTable htable = HBaseKijiTable.downcast(table);
+    final HTableInterface hti = htable.openHTableConnection();
+    try {
+      return hti.getTableName();
+    } finally {
+      hti.close();
+    }
   }
 
   /** {@inheritDoc} */
   @Override
   public List<InputSplit> getSplits(JobContext context) throws IOException {
     final Configuration conf = context.getConfiguration();
-    final CassandraKijiURI inputTableURI =
-        CassandraKijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
-    final Kiji kiji = Kiji.Factory.open(inputTableURI);
+    final KijiURI inputTableURI =
+        KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
+    final Kiji kiji = Kiji.Factory.open(inputTableURI, conf);
     try {
       final KijiTable table = kiji.openTable(inputTableURI.getTable());
       try {
-        // Create a session with a custom load-balancing policy that will ensure that we send
-        // queries for system.local and system.peers to the same node.
-        Cluster cluster = Cluster
-            .builder()
-            .addContactPoints(inputTableURI.getCassandraNodes()
-                .toArray(new String[inputTableURI.getCassandraNodes().size()]))
-            .withPort(inputTableURI.getCassandraClientPort())
-            .withLoadBalancingPolicy(new ConsistentHostOrderPolicy())
-            .build();
-        Session session = cluster.connect();
-
-        // Get a list of all of the subsplits.  A "subsplit" contains the following:
-        // - A token range (corresponding to a virtual node in the C* cluster)
-        // - A list of replica nodes for that token range
-        final SubsplitCreator subsplitCreator = new SubsplitCreator(session);
-        final List<Subsplit> subsplitsFromTokens = subsplitCreator.createSubsplits();
-        LOG.debug(String.format("Created %d subsplits from tokens", subsplitsFromTokens.size()));
-
-        // In this InputFormat, we allow the user to specify a desired number of InputSplits.  We
-        // will likely have far more subsplits (vnodes) than desired InputSplits.  Therefore, we
-        // combine subsplits (hopefully those that share the same replica nodes) until we get to our
-        // desired InputSplit count.
-        final SubsplitCombiner subsplitCombiner = new SubsplitCombiner();
-
-        // Get a list of all of the token ranges in the Cassandra cluster.
-        List<InputSplit> inputSplitList = Lists.newArrayList();
-
-        // Java is annoying here about casting a list.
-        inputSplitList.addAll(subsplitCombiner.combineSubsplits(subsplitsFromTokens));
-        cluster.close();
-        LOG.info(String.format("Created a total of %d InputSplits", inputSplitList.size()));
-        for (InputSplit inputSplit : inputSplitList) {
-          LOG.debug(inputSplit.toString());
+        final byte[] htableName = getHBaseTableName(table);
+        final List<InputSplit> splits = Lists.newArrayList();
+        byte[] scanStartKey = HConstants.EMPTY_START_ROW;
+        if (null != conf.get(KijiConfKeys.KIJI_START_ROW_KEY)) {
+          scanStartKey = Base64.decodeBase64(conf.get(KijiConfKeys.KIJI_START_ROW_KEY));
         }
-        return inputSplitList;
+        byte[] scanLimitKey = HConstants.EMPTY_END_ROW;
+        if (null != conf.get(KijiConfKeys.KIJI_LIMIT_ROW_KEY)) {
+          scanLimitKey = Base64.decodeBase64(conf.get(KijiConfKeys.KIJI_LIMIT_ROW_KEY));
+        }
+
+        for (KijiRegion region : table.getRegions()) {
+          final byte[] regionStartKey = region.getStartKey();
+          final byte[] regionEndKey = region.getEndKey();
+          // Determine if the scan start and limit key fall into the region.
+          // Logic was copied from o.a.h.h.m.TableInputFormatBase
+          if ((scanStartKey.length == 0 || regionEndKey.length == 0
+               || Bytes.compareTo(scanStartKey, regionEndKey) < 0)
+             && (scanLimitKey.length == 0
+               || Bytes.compareTo(scanLimitKey, regionStartKey) > 0)) {
+            byte[] splitStartKey = (scanStartKey.length == 0
+              || Bytes.compareTo(regionStartKey, scanStartKey) >= 0)
+              ? regionStartKey : scanStartKey;
+            byte[] splitEndKey = ((scanLimitKey.length == 0
+              || Bytes.compareTo(regionEndKey, scanLimitKey) <= 0)
+              && regionEndKey.length > 0)
+              ? regionEndKey : scanLimitKey;
+
+            // TODO(KIJIMR-65): For now pick the first available location (ie. region server),
+            // if any.
+            final String location =
+              region.getLocations().isEmpty() ? null : region.getLocations().iterator().next();
+            final TableSplit tableSplit =
+              new TableSplit(htableName, splitStartKey, splitEndKey, location);
+            splits.add(new KijiTableSplit(tableSplit));
+          }
+        }
+        return splits;
+
       } finally {
         ResourceUtils.releaseOrLog(table);
       }
@@ -148,22 +173,21 @@ public final class CassandraKijiTableInputFormat
   }
 
   /** Hadoop record reader for Kiji table rows. */
-  public static final class CassandraKijiTableRecordReader
+  public static final class KijiTableRecordReader
       extends RecordReader<EntityId, KijiRowData> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(CassandraKijiTableRecordReader.class);
+    private static final Logger LOG = LoggerFactory.getLogger(KijiTableRecordReader.class);
 
     /** Data request. */
     private final KijiDataRequest mDataRequest;
 
     private Kiji mKiji = null;
     private KijiTable mTable = null;
-    private CassandraKijiTableReader mReader = null;
+    private KijiTableReader mReader = null;
     private KijiRowScanner mScanner = null;
     private Iterator<KijiRowData> mIterator = null;
-    private MultiQueryInputSplit mSplit = null;
-    private CassandraKijiRowData mCurrentRow = null;
-    private Iterator<TokenRange> mTokenRangeIterator = null;
+    private KijiTableSplit mSplit = null;
+    private HBaseKijiRowData mCurrentRow = null;
 
     private long mStartPos;
     private long mStopPos;
@@ -175,7 +199,7 @@ public final class CassandraKijiTableInputFormat
      *
      * @param conf Configuration for the target Kiji.
      */
-    private CassandraKijiTableRecordReader(Configuration conf) {
+    private KijiTableRecordReader(Configuration conf) {
       // Get data request from the job configuration.
       final String dataRequestB64 = conf.get(KijiConfKeys.KIJI_INPUT_DATA_REQUEST);
       Preconditions.checkNotNull(dataRequestB64, "Missing data request in job configuration.");
@@ -186,18 +210,18 @@ public final class CassandraKijiTableInputFormat
     /** {@inheritDoc} */
     @Override
     public void initialize(InputSplit split, TaskAttemptContext context) throws IOException {
-      Preconditions.checkArgument(split instanceof MultiQueryInputSplit,
+      Preconditions.checkArgument(split instanceof KijiTableSplit,
           "InputSplit is not a KijiTableSplit: %s", split);
-      mSplit = (MultiQueryInputSplit) split;
-      // Create an iterator to go through all of the token ranges.
-      mTokenRangeIterator = mSplit.getTokenRangeIterator();
-      assert(mTokenRangeIterator.hasNext());
+      mSplit = (KijiTableSplit) split;
 
       final Configuration conf = context.getConfiguration();
       final KijiURI inputURI =
           KijiURI.newBuilder(conf.get(KijiConfKeys.KIJI_INPUT_TABLE_URI)).build();
 
-      // TODO: Not sure if we need this...
+      // When using Kiji tables as an input to MapReduce jobs, turn off block caching.
+      final HBaseScanOptions hBaseScanOptions = new HBaseScanOptions();
+      hBaseScanOptions.setCacheBlocks(false);
+
       // Extract the ColumnReaderSpecs and build a mapping from column to the appropriate overrides.
       final ImmutableMap.Builder<KijiColumnName, ColumnReaderSpec> overridesBuilder =
           ImmutableMap.builder();
@@ -207,47 +231,29 @@ public final class CassandraKijiTableInputFormat
         }
       }
 
-      mKiji = Kiji.Factory.open(inputURI);
+      final KijiScannerOptions scannerOptions = new KijiScannerOptions()
+          .setStartRow(HBaseEntityId.fromHBaseRowKey(mSplit.getStartRow()))
+          .setStopRow(HBaseEntityId.fromHBaseRowKey(mSplit.getEndRow()))
+          .setHBaseScanOptions(hBaseScanOptions);
+      final String filterJson = conf.get(KijiConfKeys.KIJI_ROW_FILTER);
+      if (null != filterJson) {
+        final KijiRowFilter filter = KijiRowFilter.toFilter(filterJson);
+        scannerOptions.setKijiRowFilter(filter);
+      }
+      mKiji = Kiji.Factory.open(inputURI, conf);
       mTable = mKiji.openTable(inputURI.getTable());
-      KijiTableReader reader = mTable.getReaderFactory().readerBuilder()
+      mReader = mTable.getReaderFactory().readerBuilder()
           .withColumnReaderSpecOverrides(overridesBuilder.build())
           .buildAndOpen();
-      Preconditions.checkArgument(reader instanceof CassandraKijiTableReader);
-      mReader = (CassandraKijiTableReader) reader;
-
-      // TODO: Figure out progress from tokens.
-      //mStartPos = bytesToPosition(mSplit.getStartRow(), PROGRESS_PRECISION_NBYTES);
-      //long stopPos = bytesToPosition(mSplit.getEndRow(), PROGRESS_PRECISION_NBYTES);
-      //mStopPos = (stopPos > 0) ? stopPos : (1L << (PROGRESS_PRECISION_NBYTES * 8));
-      LOG.info("Progress reporting: start={} stop={}", mStartPos, mStopPos);
-      queryNextTokenRange();
-    }
-
-    /**
-     * Execute all of our queries over the next token range in our list of token ranges for this
-     * input split.
-     *
-     * If were are out of token ranges, then set the current row and the current row iterator both
-     * to null.
-     *
-     * @throws java.io.IOException if there is a problem building a scanner.
-     */
-    private void queryNextTokenRange() throws IOException {
-      Preconditions.checkArgument(mTokenRangeIterator.hasNext());
-      Preconditions.checkArgument(null == mIterator || !mIterator.hasNext());
-
-      TokenRange nextTokenRange = mTokenRangeIterator.next();
-
-      // Get a new scanner for this token range!
-      mScanner = mReader.getScannerWithOptions(
-          mDataRequest,
-          CassandraKijiScannerOptions.withTokens(
-              Long.parseLong(nextTokenRange.getStartToken()),
-              Long.parseLong(nextTokenRange.getEndToken())));
-          mIterator = mScanner.iterator();
+      mScanner = mReader.getScanner(mDataRequest, scannerOptions);
+      mIterator = mScanner.iterator();
       mCurrentRow = null;
-    }
 
+      mStartPos = bytesToPosition(mSplit.getStartRow(), PROGRESS_PRECISION_NBYTES);
+      long stopPos = bytesToPosition(mSplit.getEndRow(), PROGRESS_PRECISION_NBYTES);
+      mStopPos = (stopPos > 0) ? stopPos : (1L << (PROGRESS_PRECISION_NBYTES * 8));
+      LOG.info("Progress reporting: start={} stop={}", mStartPos, mStopPos);
+    }
 
     /** {@inheritDoc} */
     @Override
@@ -327,39 +333,23 @@ public final class CassandraKijiTableInputFormat
     /** {@inheritDoc} */
     @Override
     public float getProgress() throws IOException {
-      /*
       if (mCurrentRow == null) {
         return 0.0f;
       }
       final byte[] currentRowKey = mCurrentRow.getHBaseResult().getRow();
       return computeProgress(mStartPos, mStopPos, currentRowKey);
-      */
-      return 0.0f;
     }
 
     /** {@inheritDoc} */
     @Override
     public boolean nextKeyValue() throws IOException {
-      while (true) {
-        if (mIterator.hasNext()) {
-          mCurrentRow = (CassandraKijiRowData) mIterator.next();
-          return true;
-        }
-        // We are out of rows in the current token range.
-        Preconditions.checkArgument(!mIterator.hasNext());
-
-        // We are also out of token ranges!
-        if (!mTokenRangeIterator.hasNext()) {
-          break;
-        }
-
-        // We still have more token ranges left!
-        Preconditions.checkArgument(mTokenRangeIterator.hasNext());
-        queryNextTokenRange();
+      if (mIterator.hasNext()) {
+        mCurrentRow = (HBaseKijiRowData) mIterator.next();
+        return true;
+      } else {
+        mCurrentRow = null;
+        return false;
       }
-
-      mCurrentRow = null;
-      return false;
     }
 
     /** {@inheritDoc} */

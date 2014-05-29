@@ -28,7 +28,6 @@ import org.apache.hadoop.mapreduce.Job;
 import org.kiji.annotations.ApiAudience;
 import org.kiji.annotations.ApiStability;
 import org.kiji.mapreduce.MapReduceJobInput;
-import org.kiji.mapreduce.framework.CassandraKijiTableInputFormat;
 import org.kiji.mapreduce.framework.KijiTableInputFormat;
 import org.kiji.mapreduce.tools.framework.JobIOConfKeys;
 import org.kiji.schema.EntityId;
@@ -211,27 +210,21 @@ public final class KijiTableMapReduceJobInput extends MapReduceJobInput {
   public void configure(Job job) throws IOException {
     // Configure the input format class.
     super.configure(job);
-    if (mInputTableURI.isCassandra()) {
-      CassandraKijiTableInputFormat.configureJob(job, mInputTableURI, mDataRequest,
+    KijiTableInputFormat inputFormat =
+        KijiTableInputFormat.Factory.get(mInputTableURI).getInputFormat();
+    job.setInputFormatClass(inputFormat.getClass());
+    KijiTableInputFormat.configureJob(job, mInputTableURI, mDataRequest,
           null != mRowOptions ? mRowOptions.getStartRow() : null,
           null != mRowOptions ? mRowOptions.getLimitRow() : null,
           null != mRowOptions ? mRowOptions.getRowFilter() : null);
-    } else {
-      KijiTableInputFormat.configureJob(job, mInputTableURI, mDataRequest,
-          null != mRowOptions ? mRowOptions.getStartRow() : null,
-          null != mRowOptions ? mRowOptions.getLimitRow() : null,
-          null != mRowOptions ? mRowOptions.getRowFilter() : null);
-    }
   }
 
   /** {@inheritDoc} */
   @Override
   protected Class<? extends InputFormat<?, ?>> getInputFormatClass() {
-    if (mInputTableURI.isCassandra()) {
-      return CassandraKijiTableInputFormat.class;
-    } else {
-      return KijiTableInputFormat.class;
-    }
+    KijiTableInputFormat inputFormat =
+        KijiTableInputFormat.Factory.get(mInputTableURI).getInputFormat();
+    return inputFormat.getClass();
   }
 
   /** @return Input table URI. */
