@@ -19,13 +19,8 @@
 
 package org.kiji.mapreduce.framework;
 
-import java.util.Map;
+import org.kiji.schema.hbase.HBaseKijiURI;
 
-import com.google.common.base.Preconditions;
-
-import org.kiji.delegation.Priority;
-import org.kiji.schema.Kiji;
-import org.kiji.schema.KijiURI;
 
 /**
  * Factory for getting instances of KijiTableInputFormat (for tables backed by HBase).
@@ -39,12 +34,7 @@ public class HBaseKijiTableInputFormatFactory implements KijiTableInputFormatFac
 
   /** {@inheritDoc} */
   @Override
-  public int getPriority(Map<String, String> runtimeHints) {
-    Preconditions.checkArgument(runtimeHints.containsKey(Kiji.KIJI_TYPE_KEY));
-    if (runtimeHints.get(Kiji.KIJI_TYPE_KEY).equals(KijiURI.TYPE_HBASE)) {
-      return Priority.NORMAL;
-    } else {
-      return Priority.DISABLED;
-    }
+  public String getName() {
+    return HBaseKijiURI.HBASE_SCHEME;
   }
 }

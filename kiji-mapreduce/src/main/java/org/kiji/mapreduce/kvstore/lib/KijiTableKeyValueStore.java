@@ -293,11 +293,7 @@ public final class KijiTableKeyValueStore<V>
       Kiji kiji = null;
       KijiTable kijiTable = null;
       try {
-        if (mTableUri.isCassandra()) {
-          kiji = Kiji.Factory.open(mTableUri);
-        } else {
-          kiji = Kiji.Factory.open(mTableUri, mConf);
-        }
+        kiji = Kiji.Factory.open(mTableUri, mConf);
         kijiTable = kiji.openTable(mTableUri.getTable());
       } catch (IOException ioe) {
         throw new IllegalArgumentException("Could not open table: " + mTableUri, ioe);
@@ -507,11 +503,7 @@ public final class KijiTableKeyValueStore<V>
     private TableKVReader() throws IOException {
       Configuration conf = getConf();
       final Kiji kiji;
-      if (mTableUri.isCassandra()) {
-        kiji = Kiji.Factory.open(mTableUri);
-      } else {
-        kiji = Kiji.Factory.open(mTableUri, conf);
-      }
+      kiji = Kiji.Factory.open(mTableUri, conf);
       try {
         mKijiTable = kiji.openTable(mTableUri.getTable());
       } finally {

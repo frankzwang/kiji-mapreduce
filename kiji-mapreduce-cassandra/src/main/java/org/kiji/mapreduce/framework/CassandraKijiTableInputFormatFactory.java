@@ -19,13 +19,7 @@
 
 package org.kiji.mapreduce.framework;
 
-import java.util.Map;
-
-import com.google.common.base.Preconditions;
-
-import org.kiji.delegation.Priority;
-import org.kiji.schema.CassandraKijiURI;
-import org.kiji.schema.Kiji;
+import org.kiji.schema.cassandra.CassandraKijiURI;
 
 /**
  * Factory for getting instances of KijiTableInputFormat (for tables backed by HBase).
@@ -39,12 +33,7 @@ public class CassandraKijiTableInputFormatFactory implements KijiTableInputForma
 
   /** {@inheritDoc} */
   @Override
-  public int getPriority(Map<String, String> runtimeHints) {
-    Preconditions.checkArgument(runtimeHints.containsKey(Kiji.KIJI_TYPE_KEY));
-    if (runtimeHints.get(Kiji.KIJI_TYPE_KEY).equals(CassandraKijiURI.TYPE_CASSANDRA)) {
-      return Priority.NORMAL;
-    } else {
-      return Priority.DISABLED;
-    }
+  public String getName() {
+    return CassandraKijiURI.CASSANDRA_SCHEME;
   }
 }

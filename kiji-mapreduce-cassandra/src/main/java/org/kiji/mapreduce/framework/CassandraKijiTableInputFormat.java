@@ -41,7 +41,6 @@ import org.slf4j.LoggerFactory;
 
 import org.kiji.annotations.ApiAudience;
 import org.kiji.annotations.ApiStability;
-import org.kiji.schema.CassandraKijiURI;
 import org.kiji.schema.EntityId;
 import org.kiji.schema.Kiji;
 import org.kiji.schema.KijiColumnName;
@@ -51,6 +50,7 @@ import org.kiji.schema.KijiRowScanner;
 import org.kiji.schema.KijiTable;
 import org.kiji.schema.KijiTableReader;
 import org.kiji.schema.KijiURI;
+import org.kiji.schema.cassandra.CassandraKijiURI;
 import org.kiji.schema.impl.cassandra.CassandraKijiRowData;
 import org.kiji.schema.impl.cassandra.CassandraKijiScannerOptions;
 import org.kiji.schema.impl.cassandra.CassandraKijiTableReader;
@@ -108,9 +108,9 @@ public final class CassandraKijiTableInputFormat
         // queries for system.local and system.peers to the same node.
         Cluster cluster = Cluster
             .builder()
-            .addContactPoints(inputTableURI.getCassandraNodes()
-                .toArray(new String[inputTableURI.getCassandraNodes().size()]))
-            .withPort(inputTableURI.getCassandraClientPort())
+            .addContactPoints(inputTableURI.getContactPoints()
+                .toArray(new String[inputTableURI.getContactPoints().size()]))
+            .withPort(inputTableURI.getContactPort())
             .withLoadBalancingPolicy(new ConsistentHostOrderPolicy())
             .build();
         Session session = cluster.connect();

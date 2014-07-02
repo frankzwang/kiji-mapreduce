@@ -165,14 +165,7 @@ public abstract class KijiTableInputJobBuilder<T extends KijiTableInputJobBuilde
 
     // Validate the Kiji data request against the current table layout:
     Preconditions.checkNotNull(mInputTableURI, "Input Kiji table was never set.");
-    // Cassandra Kiji instances don't need Configuration.
-    //final Kiji kiji = Kiji.Factory.open(mInputTableURI, getConf());
-    final Kiji kiji;
-    if (mInputTableURI.isCassandra()) {
-      kiji = Kiji.Factory.open(mInputTableURI);
-    } else {
-      kiji = Kiji.Factory.open(mInputTableURI, getConf());
-    }
+    final Kiji kiji = Kiji.Factory.open(mInputTableURI, getConf());
     try {
       final KijiTable table = kiji.openTable(mInputTableURI.getTable());
       try {

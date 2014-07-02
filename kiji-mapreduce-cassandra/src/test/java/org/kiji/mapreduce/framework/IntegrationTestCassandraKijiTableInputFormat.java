@@ -74,7 +74,7 @@ public class IntegrationTestCassandraKijiTableInputFormat {
     } else {
       // Create a Kiji instance.
       mUri = KijiURI.newBuilder(String.format(
-          "kiji-cassandra://%s:%s/127.0.0.10/9042/testinputformat",
+          "kiji-cassandra://%s:%s/127.0.0.10:9042/testinputformat",
           conf.get(HConstants.ZOOKEEPER_QUORUM),
           conf.getInt(HConstants.ZOOKEEPER_CLIENT_PORT, HConstants.DEFAULT_ZOOKEPER_CLIENT_PORT)
       )).build();
@@ -82,7 +82,7 @@ public class IntegrationTestCassandraKijiTableInputFormat {
 
     LOG.info("Installing to URI " + mUri);
     try {
-      CassandraKijiInstaller.get().install(mUri);
+      CassandraKijiInstaller.get().install(mUri, conf);
       LOG.info("Created Kiji instance at " + mUri);
     } catch (IOException ioe) {
       LOG.warn("Could not create Kiji instance.");
@@ -95,7 +95,6 @@ public class IntegrationTestCassandraKijiTableInputFormat {
     kiji.createTable(KijiTableLayouts.getLayout("org/kiji/mapreduce/layout/foo-test-rkf2.json"));
 
     mTableUri = KijiURI.newBuilder(mUri.toString()).withTableName("foo").build();
-    assertTrue(mTableUri.isCassandra());
     LOG.info("Table URI = " + mTableUri);
     KijiTable table = kiji.openTable("foo");
     KijiBufferedWriter writer = table.getWriterFactory().openBufferedWriter();

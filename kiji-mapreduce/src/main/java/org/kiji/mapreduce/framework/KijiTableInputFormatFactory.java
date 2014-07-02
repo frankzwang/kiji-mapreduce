@@ -19,12 +19,12 @@
 
 package org.kiji.mapreduce.framework;
 
-import org.kiji.delegation.PriorityProvider;
+import org.kiji.delegation.NamedProvider;
 
 /**
  * Factory for InputFormat classes for Kiji tables (which can be backed by HBase or Cassandra).
  */
-public interface KijiTableInputFormatFactory extends PriorityProvider {
+public interface KijiTableInputFormatFactory extends NamedProvider {
   /**
    * @return an instance of a KijiTableInputFormat.
    */

@@ -22,7 +22,6 @@ package org.kiji.mapreduce.framework;
 import java.io.IOException;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang.SerializationUtils;
 import org.apache.hadoop.conf.Configurable;
@@ -39,6 +38,7 @@ import org.kiji.schema.KijiDataRequest;
 import org.kiji.schema.KijiRowData;
 import org.kiji.schema.KijiURI;
 import org.kiji.schema.filter.KijiRowFilter;
+import org.kiji.schema.hbase.HBaseKijiURI;
 
 /** InputFormat for Hadoop MapReduce jobs reading from a Kiji table. */
 @ApiAudience.Framework
@@ -57,10 +57,14 @@ public abstract class KijiTableInputFormat
      */
     public static KijiTableInputFormatFactory get(KijiURI uri) {
       KijiTableInputFormatFactory instance;
+      String scheme = uri.getScheme();
+      if (scheme.equals(KijiURI.KIJI_SCHEME)) {
+        scheme = HBaseKijiURI.HBASE_SCHEME;
+      }
       synchronized (Kiji.Factory.class) {
         instance = Lookups
-            .getPriority(KijiTableInputFormatFactory.class)
-            .lookup(ImmutableMap.of(Kiji.KIJI_TYPE_KEY, uri.getKijiType()));
+            .getNamed(KijiTableInputFormatFactory.class)
+            .lookup(scheme);
         assert (null != instance);
       }
       return instance;
